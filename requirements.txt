@@ -1,0 +1,11 @@
+commonlabcode @ git+https://github.com/nsorense4/commonLabCode.git@v0.1.0
+numpy
+scipy
+matplotlib
+seaborn
+pandas
+numba
+qutip
+tqdm
+optuna
+allantools
