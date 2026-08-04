@@ -57,69 +57,9 @@ _REFFILES_DIR = os.path.join(_THIS_DIR, "..", "__refFiles")
 warnings.filterwarnings("ignore", message="invalid value encountered in divide")
 warnings.filterwarnings("ignore", message="invalid value encountered in multiply")
 
-labelfontsize = 8
-numfontsize = 8
-textwidth = 174/25.4#8.5 - 2 # in inches
-PRQuantumWidthFull = textwidth
-PRQuantumWidthHalf = 85/25.4
+from nvConstants import *
 
-# === Constants ===
-h = 6.62607015e-34      # Planck constant [J·s]
-hbar = h/(2*np.pi)
-c_const = 299792458.0 #m/s
-
-# intrinsic transition rates (power dependent rates are magic numbers)
-gamma_eg=66e6
-gamma_isc_0=7.9e6
-gamma_isc_1=53e6
-gamma_isc_g0=1e6
-gamma_isc_g1=0.7e6
-gamma_s=1e9
-gamma_NV0_eg = 53e6  #k^0_f
-gamma_NV0_em = 22540.55 #k_75
-gamma_NV0_mg = 357687.5   #k_56
-
-# intrinsic absorption cross sections
-sigma_p = 3e-21 # m^%-2
-sigma_s = 2e-22 # m^%-2
-
-ms = 2
-msa = 3
-lw = 0.2/0.3528
-nd = 2.3904
-GHzprad = 1e-9/2/np.pi
-
-lamb_s = 1042e-9   # IR probe
-lamb_p = 532e-9    # green pump
-nus = c_const/lamb_s
-omegas = nus*2*np.pi
-detuning = 0.1e9*2*np.pi
-zeeman = 0.1e9*2*np.pi
-etaFibreIR = 0.25
-etaPostFibre = 0.3
 DeltaTCorrection = 1
-
-# diamond/NV material constants
-gamma = 1.761e11/2/np.pi # Hz/T
-T2s = 0.43e-6
-gamma_phi = 1/T2s
-nd = 2.4
-hyperfine = 2.16e6
-
-carbon_density = 1.76e29  # atoms/m³
-rho_NV = carbon_density*4.5e-6 # atoms/m^3
-
-
-# I_pOpt     = 1.785e+08
-# I_sOpt     = 1.005e+10
-# OmegaROptRadps  = 9.973e+05
-# I_pOpt     = 3.135e+08
-# I_sOpt     = 1.162e+10
-# OmegaROptRadps  = 3.824e+06
-
-I_pOpt     = 3.043e+08
-I_sOpt     = 1.014e+10
-OmegaROptRadps  = 1.984e+06
 
 
 p7Off, p7On = solvePopulationDetuningLineplot(saveBool = False, 
@@ -2009,58 +1949,14 @@ def plotZeemanSplitting(saveBool = False):
     for n in range(3):
         ax.plot(B * 1e3, energies[:, n] / 1e9, lw=0.2/0.358, color = color[n])
 
-    # ax.set_xlabel()
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(0, np.max(B)*1000), ylim=(0, 6), xticks=[0], yticks=[0, 2.87],limScale=0.15, limScaleY=0.08)
 
-    min_x_value = 0
-    max_x_value = np.max(B)*1000
-    min_y_value = 0
-    max_y_value = 6
-
-    ax.set_xticks([0])
-    ax.set_yticks([0, 2.87])
-
-    rangex = max_x_value - min_x_value
-    rangey = max_y_value - min_y_value
-
-    limScale = 0.015
-    limScaley = 0.08
-    limScaleMin = rangey*limScaley
-    limScaleMax = rangey*limScaley
-
-    ax.tick_params(
-        axis="x",
-        which="major",
-        labelsize=numfontsize,
-        zorder=1,
-        direction="in",
-        top="off",
-        colors='k'
-    )
-
-    ax.spines["right"].set_visible(False)
-    ax.spines["top"].set_visible(False)
-    ax.yaxis.set_ticks_position('left')
-    ax.tick_params(axis='y', which='both', left=True, right=False)
-    ax.tick_params(axis='x', which='both', top=False, bottom=True)
-
-
-    ax.set_ylim([min_y_value - limScaleMin, max_y_value])
-    ax.set_xlim([min_x_value-12, max_x_value + rangex*limScale])
-
-    ax.spines['bottom'].set_bounds(min_x_value,max_x_value)
-    ax.xaxis.set_label_position("bottom")
-    ax.xaxis.set_ticks_position('bottom')
-
-
-
-    ax.spines['left'].set_bounds(min_y_value,max_y_value)
-
-    plt.tight_layout()
-    plt.show()
     if saveBool:
         fig.savefig(
             (_FIGURES_DIR + "/") + "ZeemanSplitting.svg", dpi=300, bbox_inches="tight",transparent=True
         )
+    
+    plt.show()
         
 def plotSpinContrastMechanisms(saveBool = False):
    
@@ -2122,8 +2018,9 @@ def plotSpinContrastMechanisms(saveBool = False):
     
     min_x_value = -10
     max_x_value = 20
-    min_y_value = 0.982
-    max_y_value = 1.018
+    deltay = 0.1
+    min_y_value = 1 - deltay
+    max_y_value = 1 + deltay
     
     filt = np.logical_and(dets < max_x_value, dets > min_x_value)
     # dets = dets[filt]
@@ -2146,45 +2043,47 @@ def plotSpinContrastMechanisms(saveBool = False):
     # ax.plot(40-detsNew[filt], pIRAbs[filt], colorDarkRed, lw = lw)
     
 
-    ax.set_xticks([min_x_value, 0, max_x_value])
-    ax.set_yticks([1])
-    # ax.set_yticklabels([r'1 + $C$', r'$1$', r'1 - $C$'])
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(min_x_value, max_x_value), ylim=(min_y_value, max_y_value), 
+                                    xticks=[min_x_value, 0, max_x_value], yticks=[1],limScale=0.05, limScaleY=0.15)
+    # ax.set_xticks([min_x_value, 0, max_x_value])
+    # ax.set_yticks([1])
+    # # ax.set_yticklabels([r'1 + $C$', r'$1$', r'1 - $C$'])
 
-    rangex = max_x_value - min_x_value
-    rangey = max_y_value - min_y_value
+    # rangex = max_x_value - min_x_value
+    # rangey = max_y_value - min_y_value
 
-    limScale = 0.06
-    limScaley = 0.1
-    limScaleMin = rangey*limScaley
-    limScaleMax = rangey*limScaley
+    # limScale = 0.06
+    # limScaley = 0.1
+    # limScaleMin = rangey*limScaley
+    # limScaleMax = rangey*limScaley
 
-    ax.tick_params(
-        axis="x",
-        which="major",
-        labelsize=numfontsize,
-        zorder=1,
-        direction="in",
-        top="off",
-        colors='k'
-    )
+    # ax.tick_params(
+    #     axis="x",
+    #     which="major",
+    #     labelsize=numfontsize,
+    #     zorder=1,
+    #     direction="in",
+    #     top="off",
+    #     colors='k'
+    # )
 
-    ax.spines["right"].set_visible(False)
-    ax.spines["top"].set_visible(False)
-    ax.yaxis.set_ticks_position('left')
-    ax.tick_params(axis='y', which='both', left=True, right=False)
-    ax.tick_params(axis='x', which='both', top=False, bottom=True)
-
-
-    ax.set_ylim([min_y_value - limScaleMin, max_y_value + limScaleMin])
-    ax.set_xlim([min_x_value-1, max_x_value + rangex*limScale])
-
-    ax.spines['bottom'].set_bounds(min_x_value,max_x_value)
-    ax.xaxis.set_label_position("bottom")
-    ax.xaxis.set_ticks_position('bottom')
+    # ax.spines["right"].set_visible(False)
+    # ax.spines["top"].set_visible(False)
+    # ax.yaxis.set_ticks_position('left')
+    # ax.tick_params(axis='y', which='both', left=True, right=False)
+    # ax.tick_params(axis='x', which='both', top=False, bottom=True)
 
 
+    # ax.set_ylim([min_y_value - limScaleMin, max_y_value + limScaleMin])
+    # ax.set_xlim([min_x_value-1, max_x_value + rangex*limScale])
 
-    ax.spines['left'].set_bounds(min_y_value,max_y_value)
+    # ax.spines['bottom'].set_bounds(min_x_value,max_x_value)
+    # ax.xaxis.set_label_position("bottom")
+    # ax.xaxis.set_ticks_position('bottom')
+
+
+
+    # ax.spines['left'].set_bounds(min_y_value,max_y_value)
 
     plt.tight_layout()
     plt.show()
@@ -8267,82 +8166,84 @@ def plotNoiseFigureCAFQA(saveBool = False):
 
     plt.show()
 
-#%% other function calls
-saveBool = False
 
-#### unused functions
-# plotVisibleSpectrometerData(saveBool)
-# plotVisibleSpectrometerDiffData(saveBool)
-# plotIRSpectrometerData(saveBool)
-# plotIRSpectrometerDiffData(saveBool)
-# plotEtalonSensitivityCavityLength(saveBool)
-# plotEtalonSensitivity(saveBool)
-# plotEtalonSensitivityKappa(saveBool)
-# plotMicrodiskTheorySensitivity(saveBool)
-# plotWideTransmission(saveBool)
+if __name__ == "__main__":
+    #%% other function calls
+    saveBool = False
 
-#### conference abstract functions
-# plot2DData(saveBool)
+    #### unused functions
+    # plotVisibleSpectrometerData(saveBool)
+    # plotVisibleSpectrometerDiffData(saveBool)
+    # plotIRSpectrometerData(saveBool)
+    # plotIRSpectrometerDiffData(saveBool)
+    # plotEtalonSensitivityCavityLength(saveBool)
+    # plotEtalonSensitivity(saveBool)
+    # plotEtalonSensitivityKappa(saveBool)
+    # plotMicrodiskTheorySensitivity(saveBool)
+    # plotWideTransmission(saveBool)
 
-#%% paper function calls
+    #### conference abstract functions
+    # plot2DData(saveBool)
 
-saveBool = False
+    #%% paper function calls
 
-## figure 1
-plotZeemanSplitting(saveBool = saveBool)
-# plotSpinContrastMechanisms(saveBool = saveBool)
+    saveBool = False
 
-## figure 2
-# solveSensitivityVaryIRPower(saveBool = saveBool)
-# plotEtalonSensitivity1D(saveBool)
-# plotSensitivityRelation(saveBool)
-# plotSensitivityComparison(saveBool)
+    ## figure 1
+    # plotZeemanSplitting(saveBool = saveBool)
+    plotSpinContrastMechanisms(saveBool = saveBool)
 
-## figure 3
-# plotIRSpectrometerCombined(saveBool)
-# plotIRSpectrometerODMR(saveBool)
+    ## figure 2
+    # solveSensitivityVaryIRPower(saveBool = saveBool)
+    # plotEtalonSensitivity1D(saveBool)
+    # plotSensitivityRelation(saveBool)
+    # plotSensitivityComparison(saveBool)
 
-## figure 4
-# plotChangeInTransmissionCartoon(saveBool)
-# plotChangeInTransmissionCartoon2(saveBool)
+    ## figure 3
+    # plotIRSpectrometerCombined(saveBool)
+    # plotIRSpectrometerODMR(saveBool)
 
-## figure 5
-# plotNarrowTransmissionPaper(saveBool)
-# plotZeroFieldODMR(saveBool)
-# plotWideTransmissionAndSignal(saveBool)
+    ## figure 4
+    # plotChangeInTransmissionCartoon(saveBool)
+    # plotChangeInTransmissionCartoon2(saveBool)
 
-## figure 6
-# plotODMRFittingCurves(saveBool = saveBool)
-# plotNoiseFigure(saveBool = saveBool)
+    ## figure 5
+    # plotNarrowTransmissionPaper(saveBool)
+    # plotZeroFieldODMR(saveBool)
+    # plotWideTransmissionAndSignal(saveBool)
 
-# figure 7
-# plotDetuningExample(saveBool)
-# plotMicrodiskTheorySensitivityDeltaTvsMWDet(saveBool = saveBool)
-# plotMicrodiskTheorySensitivitykcavkex(saveBool = saveBool)
+    ## figure 6
+    # plotODMRFittingCurves(saveBool = saveBool)
+    # plotNoiseFigure(saveBool = saveBool)
 
-## figure 8
-# plotLitReview(saveBool)
+    # figure 7
+    # plotDetuningExample(saveBool)
+    # plotMicrodiskTheorySensitivityDeltaTvsMWDet(saveBool = saveBool)
+    # plotMicrodiskTheorySensitivitykcavkex(saveBool = saveBool)
 
-## Appendix
-# plotCWOptimization(saveBool = saveBool)
-# only run once
-# solveAlphaFuncofIRIntensity(N = 51)
+    ## figure 8
+    # plotLitReview(saveBool)
 
-# plotMicrodiskTheorySensitivityDeltaTvsMWDetSI(saveBool = saveBool)
-# plotLockinExample(saveBool)
-# plotMicrodiskDeltaTvsMWDetZeroFieldSI(saveBool = saveBool)
-# plotMicrodiskDeltaTvsMWDetSI(saveBool = saveBool)
+    ## Appendix
+    # plotCWOptimization(saveBool = saveBool)
+    # only run once
+    # solveAlphaFuncofIRIntensity(N = 51)
 
-## plot Second Higher Q Mode result
-# plotDetunings(saveBool)
-# plotNarrowTransmissionPaperHighQ(saveBool)
-# plotDetuningExampleHighQ(saveBool)
-# plotMicrodiskTheorySensitivityDeltaTvsMWDeHighQ(saveBool = saveBool)
-# plotODMRFittingCurvesHighQ(saveBool = saveBool)
-# plotNoiseFigureHighQ(saveBool = saveBool)
+    # plotMicrodiskTheorySensitivityDeltaTvsMWDetSI(saveBool = saveBool)
+    # plotLockinExample(saveBool)
+    # plotMicrodiskDeltaTvsMWDetZeroFieldSI(saveBool = saveBool)
+    # plotMicrodiskDeltaTvsMWDetSI(saveBool = saveBool)
+
+    ## plot Second Higher Q Mode result
+    # plotDetunings(saveBool)
+    # plotNarrowTransmissionPaperHighQ(saveBool)
+    # plotDetuningExampleHighQ(saveBool)
+    # plotMicrodiskTheorySensitivityDeltaTvsMWDeHighQ(saveBool = saveBool)
+    # plotODMRFittingCurvesHighQ(saveBool = saveBool)
+    # plotNoiseFigureHighQ(saveBool = saveBool)
 
 
-# print((calcEnergyLossRate(nd, alpha1) - calcEnergyLossRate(nd, alpha0))/1e6)
-# plotSpinContrastMechanismsPL(saveBool = saveBool)
-# plotNoiseFigureCAFQA(saveBool = saveBool)
-# plotMicrodiskTheoryCompareCalcVsSimple(saveBool = saveBool)
+    # print((calcEnergyLossRate(nd, alpha1) - calcEnergyLossRate(nd, alpha0))/1e6)
+    # plotSpinContrastMechanismsPL(saveBool = saveBool)
+    # plotNoiseFigureCAFQA(saveBool = saveBool)
+    # plotMicrodiskTheoryCompareCalcVsSimple(saveBool = saveBool)
