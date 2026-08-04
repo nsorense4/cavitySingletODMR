@@ -50,6 +50,10 @@ from allantools import oadev
 
 import glob
 
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_FIGURES_DIR = os.path.join(_THIS_DIR, "..", "__figures")
+_REFFILES_DIR = os.path.join(_THIS_DIR, "..", "__refFiles")
+
 warnings.filterwarnings("ignore", message="invalid value encountered in divide")
 warnings.filterwarnings("ignore", message="invalid value encountered in multiply")
 
@@ -918,14 +922,16 @@ def solveAlphaFuncofIRIntensity(N = 11):
     plt.semilogx(I_IR,p7On-p7Off)
     plt.show()
     
-    np.savez("p7_I_IR_lookup.npz",
+    np.savez(os.path.join(_REFFILES_DIR, "p7_I_IR_lookup.npz"),
          I_IR=I_IR,
          p7On=p7On,
          p7Off=p7Off)
-    
+
     return I_IR, p7On, p7Off
-    
-def get_p7_interp(filename="./p7_I_IR_lookup.npz", onBool = True):
+
+def get_p7_interp(filename=None, onBool = True):
+    if filename is None:
+        filename = os.path.join(_REFFILES_DIR, "p7_I_IR_lookup.npz")
     
     if os.path.exists(filename):
         data = np.load(filename)
@@ -1366,7 +1372,7 @@ def plotEtalonSensitivity(saveBool = False):
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "2DsensitivityIR.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "2DsensitivityIR.png", dpi=300, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -1457,7 +1463,7 @@ def plotEtalonSensitivityKappa(saveBool = False):
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "LengthSensitivityPres.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "LengthSensitivityPres.png", dpi=300, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -1629,7 +1635,7 @@ def plotMicrodiskTheorySensitivity(saveBool = False):
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "2DsensitivityIRMicrocavity.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "2DsensitivityIRMicrocavity.png", dpi=300, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -1711,7 +1717,7 @@ def plotNarrowTransmission(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "NarrowTransmission_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NarrowTransmission_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -1774,7 +1780,7 @@ def plotWideTransmission(saveBool = False):
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "WideTransmission_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "WideTransmission_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -1906,13 +1912,13 @@ def plot2DData(saveBool = False):
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "2DSignal_4p2um.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "2DSignal_4p2um.png", dpi=300, bbox_inches="tight",transparent=True
         )
         fig1.savefig(
-            "./figures/" + "yLine.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "yLine.svg", dpi=300, bbox_inches="tight",transparent=True
         )
         fig2.savefig(
-            "./figures/" + "xLine.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "xLine.svg", dpi=300, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -2053,7 +2059,7 @@ def plotZeemanSplitting(saveBool = False):
     plt.show()
     if saveBool:
         fig.savefig(
-            "./figures/" + "ZeemanSplitting.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "ZeemanSplitting.svg", dpi=300, bbox_inches="tight",transparent=True
         )
         
 def plotSpinContrastMechanisms(saveBool = False):
@@ -2184,7 +2190,7 @@ def plotSpinContrastMechanisms(saveBool = False):
     plt.show()
     if saveBool:
         fig.savefig(
-            "./figures/" + "statePopulation.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "statePopulation.svg", dpi=300, bbox_inches="tight",transparent=True
         )
         
 
@@ -2483,7 +2489,7 @@ def solveSensitivityVaryIRPowerInset(saveBool = False,
     # ax.spines['left'].set_bounds(min_y_value,max_y_value)
     if saveBool:
         fig.savefig(
-            "./figures/" + "NaiveSensitivity.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NaiveSensitivity.svg", dpi=300, bbox_inches="tight",transparent=True
             )
     plt.show()
 
@@ -2777,7 +2783,7 @@ def solveSensitivityVaryIRPower(saveBool = False,
     # ax.spines['left'].set_bounds(min_y_value,max_y_value)
     if saveBool:
         fig.savefig(
-            "./figures/" + "NaiveSensitivity.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NaiveSensitivity.svg", dpi=300, bbox_inches="tight",transparent=True
             )
     plt.show()
   
@@ -2883,7 +2889,7 @@ def plotSensitivityRelation(saveBool = False,
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "SensitivityRelation.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "SensitivityRelation.svg", dpi=300, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -2996,7 +3002,7 @@ def plotSensitivityComparison(saveBool = False,
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "SensitivityRelation.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "SensitivityRelation.svg", dpi=300, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -3089,7 +3095,7 @@ def plotEtalonSensitivity1D(saveBool = False,
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "TmSensitivityPres.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "TmSensitivityPres.svg", dpi=300, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -3151,7 +3157,7 @@ def plotEtalonSensitivityCavityLength(saveBool = False):
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "LengthSensitivityPres.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "LengthSensitivityPres.svg", dpi=300, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -3273,7 +3279,7 @@ def plotIRSpectrometerCombined(saveBool = False):
     fig.subplots_adjust(hspace=0.1)
     if saveBool:
         fig.savefig(
-            "./figures/" + "IREmissionSpectrometry.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "IREmissionSpectrometry.svg", dpi=300, bbox_inches="tight",transparent=True
         )
         
     plt.show()
@@ -3371,7 +3377,7 @@ def plotIRSpectrometerODMR(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "IREmissionSpectrometryODMR.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "IREmissionSpectrometryODMR.svg", dpi=300, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -3499,7 +3505,7 @@ def plotChangeInTransmissionCartoon(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "TransmissionCartoon.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "TransmissionCartoon.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -3604,7 +3610,7 @@ def plotChangeInTransmissionCartoon2(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "TransmissionCartoon2.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "TransmissionCartoon2.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -3688,7 +3694,7 @@ def plotNarrowTransmissionPaper(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "NarrowTransmission_4p2um_paper.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NarrowTransmission_4p2um_paper.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -3815,7 +3821,7 @@ def plotZeroFieldODMR(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "ZeroFieldODMR_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "ZeroFieldODMR_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -3971,7 +3977,7 @@ def plotWideTransmissionAndSignal(saveBool = False):
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "WideTransmissionAndAbsSignal_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "WideTransmissionAndAbsSignal_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -4079,7 +4085,7 @@ def plotODMRFittingCurves(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "signalConversionCAFQA" + ".svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "signalConversionCAFQA" + ".svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -4242,7 +4248,7 @@ def plotNoiseFigure(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "noiseMeasurement" + ".svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "noiseMeasurement" + ".svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -4482,7 +4488,7 @@ def plotDetuningExample(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "parameterDefinitions.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "parameterDefinitions.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -4691,11 +4697,11 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDet(saveBool = False):
     
     if saveBool:
         # fig.savefig(
-        #     "./figures/" + "CompareExpToTheory2D.png", dpi=600, bbox_inches="tight",transparent=True
+        #     (_FIGURES_DIR + "/") + "CompareExpToTheory2D.png", dpi=600, bbox_inches="tight",transparent=True
         # )
         
         fig.savefig(
-            "./figures/" + "CompareExpToTheory2D.svg", bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "CompareExpToTheory2D.svg", bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -4899,7 +4905,7 @@ def plotMicrodiskTheorySensitivitykcavkex(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "2DSensitivity.svg", dpi=600, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "2DSensitivity.svg", dpi=600, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -5254,7 +5260,7 @@ def plotMicrodiskTheoryCompareCalcVsSimple(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "2DSensitivity.svg", dpi=600, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "2DSensitivity.svg", dpi=600, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -5765,7 +5771,7 @@ def plotLitReview(saveBool=False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "litReviewPaper" + ".svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "litReviewPaper" + ".svg", dpi=300, bbox_inches="tight",transparent=True
         )
         # fig2.savefig(
         #     "../figures/" + "litReviewPaperNorm" + ".svg", dpi=300, bbox_inches="tight",transparent=True
@@ -5958,7 +5964,7 @@ def plotDetunings(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "parameterDefinitions.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "parameterDefinitions.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -6248,11 +6254,11 @@ def plotMicrodiskDeltaTvsMWDetSI(saveBool = False):
 
     if saveBool:
         # fig.savefig(
-        #     "./figures/" + "CompareExpToTheory2D.png", dpi=600, bbox_inches="tight",transparent=True
+        #     (_FIGURES_DIR + "/") + "CompareExpToTheory2D.png", dpi=600, bbox_inches="tight",transparent=True
         # )
         
         fig.savefig(
-            "./figures/" + "CompareLockInResultsField.svg", bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "CompareLockInResultsField.svg", bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -6522,11 +6528,11 @@ def plotMicrodiskDeltaTvsMWDetZeroFieldSI(saveBool = False):
 
     if saveBool:
         # fig.savefig(
-        #     "./figures/" + "CompareExpToTheory2D.png", dpi=600, bbox_inches="tight",transparent=True
+        #     (_FIGURES_DIR + "/") + "CompareExpToTheory2D.png", dpi=600, bbox_inches="tight",transparent=True
         # )
         
         fig.savefig(
-            "./figures/" + "CompareLockInResultsZeroField.svg", bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "CompareLockInResultsZeroField.svg", bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -6743,7 +6749,7 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDetSI(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "CompareExpToTheory2D.png", dpi=600, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "CompareExpToTheory2D.png", dpi=600, bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -6880,7 +6886,7 @@ def plotLockinExample(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "LockInTechniques.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "LockInTechniques.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -7139,11 +7145,11 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDeHighQ(saveBool = False):
     
     if saveBool:
         # fig.savefig(
-        #     "./figures/" + "CompareExpToTheory2D.png", dpi=600, bbox_inches="tight",transparent=True
+        #     (_FIGURES_DIR + "/") + "CompareExpToTheory2D.png", dpi=600, bbox_inches="tight",transparent=True
         # )
         
         fig.savefig(
-            "./figures/" + "CompareExpToTheory2DHighQ.svg", bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "CompareExpToTheory2DHighQ.svg", bbox_inches="tight",transparent=True
         )
     
     plt.show()
@@ -7236,7 +7242,7 @@ def plotNarrowTransmissionPaperHighQ(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "NarrowTransmission_4p2um_paper.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NarrowTransmission_4p2um_paper.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -7455,7 +7461,7 @@ def plotCWOptimization(saveBool = False):
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "CWOptimizationIR" + ".svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "CWOptimizationIR" + ".svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -7721,7 +7727,7 @@ def plotDetuningExampleHighQ(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "parameterDefinitionsHighQ.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "parameterDefinitionsHighQ.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -7815,7 +7821,7 @@ def plotODMRFittingCurvesHighQ(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "signalConversionHighQ" + ".svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "signalConversionHighQ" + ".svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -7971,7 +7977,7 @@ def plotNoiseFigureHighQ(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "noiseMeasurementHighQ" + ".svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "noiseMeasurementHighQ" + ".svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -8101,7 +8107,7 @@ def plotSpinContrastMechanismsPL(saveBool = False):
     plt.show()
     if saveBool:
         fig.savefig(
-            "./figures/" + "ODMRContrastSim.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "ODMRContrastSim.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
 def plotNoiseFigureCAFQA(saveBool = False):
@@ -8256,7 +8262,7 @@ def plotNoiseFigureCAFQA(saveBool = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "noiseMeasurementCAFQA" + ".svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "noiseMeasurementCAFQA" + ".svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()

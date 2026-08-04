@@ -21,6 +21,11 @@ import time
 import multiprocessing as mp
 from scipy.optimize import least_squares
 from scipy.interpolate import interp1d
+import os
+
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_FIGURES_DIR = os.path.join(_THIS_DIR, "..", "__figures")
+_REFFILES_DIR = os.path.join(_THIS_DIR, "..", "__refFiles")
 
 counter = mp.Value('i', 0)
 
@@ -208,7 +213,7 @@ def solveTimeDependentPopulation(saveBool = False,
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVTimeSolution.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVTimeSolution.svg", dpi=300, bbox_inches="tight",transparent=True
             )
     
     plt.show()
@@ -1053,7 +1058,7 @@ def solvePopulationIROmegaR(saveBool = False,
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastOmegaRIR.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastOmegaRIR.png", dpi=300, bbox_inches="tight",transparent=True
             )
         
             
@@ -1223,7 +1228,7 @@ def solvePopulationGreenOmegaR(saveBool = False,
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
             )
         
 
@@ -1339,7 +1344,7 @@ def solvePopulationIRGreen(saveBool = False,
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastGreenIR.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastGreenIR.png", dpi=300, bbox_inches="tight",transparent=True
             )
         
 
@@ -1582,7 +1587,7 @@ def solvePopulationLineplots(saveBool = False):
     plt.xscale('log');
     if saveBool:
         fig.savefig(
-            "./figures/" + "DarkStateFigure.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "DarkStateFigure.svg", dpi=300, bbox_inches="tight",transparent=True
             )
     plt.show()
     

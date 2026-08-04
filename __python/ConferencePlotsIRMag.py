@@ -22,6 +22,11 @@ from scipy.ndimage import uniform_filter1d
 # from allantools import oadev 
 from matplotlib.ticker import FormatStrFormatter
 import matplotlib.colors as colors
+import os
+
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_FIGURES_DIR = os.path.join(_THIS_DIR, "..", "__figures")
+_REFFILES_DIR = os.path.join(_THIS_DIR, "..", "__refFiles")
 
 
 labelfontsize = 8
@@ -148,7 +153,7 @@ def plotNarrowTransmission(saveBool = False):
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "NarrowTransmission_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NarrowTransmission_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -226,7 +231,7 @@ def plotWideTransmission(saveBool = False):
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "WideTransmissionAndAbsSignal_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "WideTransmissionAndAbsSignal_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
@@ -358,13 +363,13 @@ def plot2DData(saveBool = False):
         
     if saveBool:
         fig.savefig(
-            "./figures/" + "2DSignal_4p2um.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "2DSignal_4p2um.png", dpi=300, bbox_inches="tight",transparent=True
         )
         fig1.savefig(
-            "./figures/" + "yLine.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "yLine.svg", dpi=300, bbox_inches="tight",transparent=True
         )
         fig2.savefig(
-            "./figures/" + "xLine.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "xLine.svg", dpi=300, bbox_inches="tight",transparent=True
         )
     
     plt.show()

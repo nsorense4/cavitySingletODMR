@@ -19,6 +19,12 @@ from scipy.optimize import least_squares
 from scipy.interpolate import interp1d
 from matplotlib.colors import Normalize
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import os
+
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_FIGURES_DIR = os.path.join(_THIS_DIR, "..", "__figures")
+_REFFILES_DIR = os.path.join(_THIS_DIR, "..", "__refFiles")
+
 counter = mp.Value('i', 0)
 lw = 0.2/0.3528
 labelfontsize = 8
@@ -262,7 +268,7 @@ def solveTimeDependentPopulation(saveBool = False,
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVTimeSolution.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVTimeSolution.svg", dpi=300, bbox_inches="tight",transparent=True
             )
     
     plt.show()
@@ -1588,7 +1594,7 @@ def solvePopulationOmegaR(saveBool = False,
 
     # if saveBool:
     #     fig.savefig(
-    #         "./figures/" + "NVPopulationContrastOmegaRIR.png", dpi=300, bbox_inches="tight",transparent=True
+    #         (_FIGURES_DIR + "/") + "NVPopulationContrastOmegaRIR.png", dpi=300, bbox_inches="tight",transparent=True
     #         )
 
 def solvePopulationIROmegaR(saveBool = False,
@@ -1707,7 +1713,7 @@ def solvePopulationIROmegaR(saveBool = False,
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastOmegaRIR.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastOmegaRIR.png", dpi=300, bbox_inches="tight",transparent=True
             )
         
             
@@ -1877,7 +1883,7 @@ def solvePopulationIROmegaR(saveBool = False,
 
 #     if saveBool:
 #         fig.savefig(
-#             "./figures/" + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
+#             (_FIGURES_DIR + "/") + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
 #             )
         
 def solveNVIRAbs_GreenOmegaR(saveBool = False,
@@ -2054,7 +2060,7 @@ def solveNVIRAbs_GreenOmegaR(saveBool = False,
     ax.scatter(np.log10(I_green[col])-7, np.log10(OmegaRArr[row])-6, marker = '*', color = 'red')
     plt.show()
     
-    np.savez("IRAbsfits.npz",
+    np.savez(os.path.join(_REFFILES_DIR, "IRAbsfits.npz"),
          nu=nu,
          C=C,
          I_green=I_green,
@@ -2067,7 +2073,7 @@ def solveNVIRAbs_GreenOmegaR(saveBool = False,
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
             )
         
 
@@ -2241,7 +2247,7 @@ def solveNVPL_GreenOmegaR(saveBool = False,
     ax.scatter(np.log10(I_green[col])-7, np.log10(OmegaRArr[row])-6, marker = '*', color = 'red')
     plt.show()
     
-    np.savez("IRPLfits.npz",
+    np.savez(os.path.join(_REFFILES_DIR, "IRPLfits.npz"),
          nu=nu,
          C=C,
          I_green=I_green,
@@ -2252,7 +2258,7 @@ def solveNVPL_GreenOmegaR(saveBool = False,
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
             )
         
 def solveNV0PL_GreenOmegaR(saveBool = False,
@@ -2425,7 +2431,7 @@ def solveNV0PL_GreenOmegaR(saveBool = False,
     # ax.scatter(np.log10(I_green[col])-7, np.log10(OmegaRArr[row])-6, marker = '*', color = 'red')
     plt.show()
     
-    np.savez("NV0PLfits.npz",
+    np.savez(os.path.join(_REFFILES_DIR, "NV0PLfits.npz"),
          nu=nu,
          C=C,
          I_green=I_green,
@@ -2436,7 +2442,7 @@ def solveNV0PL_GreenOmegaR(saveBool = False,
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
             )
         
         
@@ -2607,7 +2613,7 @@ def solveNVIRPL_GreenOmegaR(saveBool = False,
     ax.scatter(np.log10(I_green[col])-7, np.log10(OmegaRArr[row])-6, marker = '*', color = 'red')
     plt.show()
     
-    np.savez("IRPLfits.npz",
+    np.savez(os.path.join(_REFFILES_DIR, "IRPLfits.npz"),
          nu=nu,
          C=C,
          I_green=I_green,
@@ -2618,7 +2624,7 @@ def solveNVIRPL_GreenOmegaR(saveBool = False,
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastOmegaRGreen.png", dpi=300, bbox_inches="tight",transparent=True
             )
         
         
@@ -2735,7 +2741,7 @@ def solvePopulationIRGreen(saveBool = False,
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastGreenIR.png", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastGreenIR.png", dpi=300, bbox_inches="tight",transparent=True
             )
         
 def solvePopulationIRGreenOmegaR(saveBool = False,
@@ -3013,7 +3019,7 @@ def solvePopulationIRGreenOmegaR(saveBool = False,
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastAll.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastAll.svg", dpi=300, bbox_inches="tight",transparent=True
             )
         
 def solvePopulationIRGreenOmegaRDetuning(
@@ -3347,7 +3353,7 @@ def solvePopulationIRGreenOmegaRDetuning(
 
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastAllDetuning.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastAllDetuning.svg", dpi=300, bbox_inches="tight",transparent=True
             )
         
 
@@ -3592,7 +3598,7 @@ def solvePopulationLineplots(saveBool = False):
     plt.xscale('log');
     if saveBool:
         fig.savefig(
-            "./figures/" + "DarkStateFigure.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "DarkStateFigure.svg", dpi=300, bbox_inches="tight",transparent=True
             )
     plt.show()
     
@@ -3796,7 +3802,7 @@ def solvePopulationSteadyStateContrast(saveBool = False, bool1042 = False):
     
     if saveBool:
         fig.savefig(
-            "./figures/" + "NVPopulationContrastPaper.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NVPopulationContrastPaper.svg", dpi=300, bbox_inches="tight",transparent=True
             )
     
     plt.show()
@@ -3924,7 +3930,7 @@ def solvePopulationSteadyStateOmegaR(saveBool = False, bool1042 = False):
     
     # if saveBool:
     #     fig.savefig(
-    #         "./figures/" + "NVPopulationContrastPaper.svg", dpi=300, bbox_inches="tight",transparent=True
+    #         (_FIGURES_DIR + "/") + "NVPopulationContrastPaper.svg", dpi=300, bbox_inches="tight",transparent=True
     #         )
     
     plt.show()
@@ -4115,7 +4121,7 @@ def solveSensitivityVaryIRPower(saveBool = False,
     # ax.spines['left'].set_bounds(min_y_value,max_y_value)
     if saveBool:
         fig.savefig(
-            "./figures/" + "NaiveSensitivity.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "NaiveSensitivity.svg", dpi=300, bbox_inches="tight",transparent=True
             )
     plt.show()
 
