@@ -15,6 +15,7 @@ from tqdm import tqdm
 import optuna
 import time
 import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
 from scipy.optimize import least_squares
 from scipy.interpolate import interp1d
 from matplotlib.colors import Normalize
@@ -28,6 +29,42 @@ _REFFILES_DIR = os.path.join(_THIS_DIR, "..", "__refFiles")
 counter = mp.Value('i', 0)
 
 from nvConstants import *
+from functools import partial
+
+# Nearly every nv_steady_state(...) call in this file passes the same ~14 rate/
+# material constants; only Omega/I_s/I_p/detuning/zeeman/steadystatebool/tEnd vary
+# between call sites. Binding the fixed ones here removes ~20 lines of repetition
+# per call site (previously copy-pasted at 68 call sites).
+nv_steady_state_default = partial(
+    nv_steady_state,
+    gamma_eg=gamma_eg,
+    gamma_isc_0=gamma_isc_0,
+    gamma_isc_1=gamma_isc_1,
+    gamma_isc_g0=gamma_isc_g0,
+    gamma_isc_g1=gamma_isc_g1,
+    gamma_s=gamma_s,
+    gamma_NV0_eg=gamma_NV0_eg,
+    gamma_NV0_em=gamma_NV0_em,
+    gamma_NV0_mg=gamma_NV0_mg,
+    sigma_p=sigma_p,
+    sigma_s=sigma_s,
+    lamb_s=lamb_s,
+    lamb_p=lamb_p,
+    c=c_const,
+    h=h,
+    gamma_phi=gamma_phi,
+    paramsRates=paramsRatesOnes,
+    paramsRatesReal=paramsRatesReal,
+)
+
+# Several functions adaptively grow/shrink a detuning bandwidth `bw` in a loop
+# until the resulting FWHM lands in a target range (too wide -> bw *= 2; too
+# narrow -> bw is divided by an ad-hoc step factor, e.g. 1.6 or 3, that just
+# controls convergence speed and isn't otherwise meaningful). That loop used
+# to be `while True:`, which could hang forever if a sweep point never
+# converges; it's now capped at this many attempts.
+MAX_BISECTION_ITERS = 25
+
 # angleNV = 35 #deg
 # alpha0 = 12.6/4 * np.cos(np.pi/180 * angleNV)**2
 # alpha1 = 19.3/4 * np.cos(np.pi/180 * angleNV)**2
@@ -42,35 +79,18 @@ def solveTimeDependentPopulation(saveBool = False,
                                     OmegaR = 2*np.pi*1e6, #rad/s
                                     I_p = 1e8,
                                     I_s = 1e8, bool1042 = False, detuning = detuning):
+    """Time-evolve the NV 11-level populations for one set of drive parameters and plot them on a log scale."""
 
-    result, tlist = nv_steady_state(
-                                    Omega = OmegaR, #rad/s
-                                    I_s = I_s,   #rad/s
-                                    I_p = I_p, #W/m^2
-                                    gamma_phi = gamma_phi,   #Hz
-                                    detuning = detuning, #rad/s
-                                    zeeman   = zeeman, #rad/s
-                                    steadystatebool=False, 
-                                    tEnd = 1e-6,
-                                    gamma_eg=gamma_eg,
-                                    gamma_isc_0=gamma_isc_0,
-                                    gamma_isc_1=gamma_isc_1,
-                                    gamma_isc_g0=gamma_isc_g0,
-                                    gamma_isc_g1=gamma_isc_g1,
-                                    gamma_s=gamma_s,
-                                    gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                    gamma_NV0_em = gamma_NV0_em, #k_75
-                                    gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                    sigma_p = sigma_p, # m^%-2
-                                    sigma_s = sigma_s, # m^%-2
-                                    lamb_s = lamb_s,   # IR probe
-                                    lamb_p = lamb_p,    # green pump
-                                    c = c_const, #m/s
-                                    h = h,      # Planck constant [J·s]
-                                    paramsRates = paramsRatesOnes,
-                                    paramsRatesReal= paramsRatesReal,
-                                    bool1042 = bool1042
-                                    )
+    result, tlist = nv_steady_state_default(
+        Omega = OmegaR,
+        I_s = I_s,
+        I_p = I_p,
+        detuning = detuning,
+        zeeman = zeeman,
+        steadystatebool=False,
+        tEnd = 1e-6,
+        bool1042 = bool1042,
+    )
     
     # ---------------------------
     # Plot populations
@@ -137,6 +157,7 @@ def solveTimeDependentPopulation(saveBool = False,
     plt.show()
 
 def solvePeakWidthAndHeight(x, y):
+    """Return the peak height and FWHM (in x-units) of the tallest peak in y(x)."""
     peaks, _ = find_peaks(y)
     FWHM, _, _, _  = peak_widths(y, peaks, rel_height=0.5)
     try:
@@ -147,8 +168,10 @@ def solvePeakWidthAndHeight(x, y):
     return maxSignal, FWHM
     
 def calcSensitivityCW(nu, C, P, lamb):
+    """CW magnetometry sensitivity from resonance frequency nu, contrast C, optical power P, and wavelength lamb."""
     return 4/(3*np.sqrt(3)) * 1/gamma * nu/C * np.sqrt(h*c_const/lamb/P)
 def calcSensitivityCW_countrate(nu, C,R):
+    """CW magnetometry sensitivity from resonance frequency nu, contrast C, and photon count rate R."""
     return 4/(3*np.sqrt(3)) * 1/gamma * nu/C * np.sqrt(1/R)
 
 def solveSensitivity(saveBool = False,
@@ -168,6 +191,7 @@ def solveSensitivity(saveBool = False,
                     h = h,
                     c = c_const,
                     bool1042 = True):
+    """Grid sensitivity over green power, IR power, and Rabi frequency, each fit via a detuning scan."""
     # detuning
     detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
     
@@ -191,61 +215,25 @@ def solveSensitivity(saveBool = False,
                     mOff = np.zeros(Npoints)
                     for k, det in enumerate(detunings):
                     
-                        popOn = nv_steady_state(
-                                                        Omega = OmegaR, #rad/s
-                                                        I_s = I_s,   #rad/s
-                                                        I_p = I_p, #W/m^2
-                                                        gamma_phi = gamma_phi,   #Hz
-                                                        detuning = (det), #rad/s
-                                                        zeeman   = zeeman, #rad/s
-                                                        steadystatebool=True, 
-                                                        gamma_eg=gamma_eg,
-                                                        gamma_isc_0=gamma_isc_0,
-                                                        gamma_isc_1=gamma_isc_1,
-                                                        gamma_isc_g0=gamma_isc_g0,
-                                                        gamma_isc_g1=gamma_isc_g1,
-                                                        gamma_s=gamma_s,
-                                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                                        sigma_p = sigma_p, # m^%-2
-                                                        sigma_s = sigma_s, # m^%-2
-                                                        lamb_s = lamb_s,   # IR probe
-                                                        lamb_p = lamb_p,    # green pump
-                                                        c = c_const, #m/s
-                                                        h = h,      # Planck constant [J·s]
-                                                        paramsRates = paramsRatesOnes,
-                                                        paramsRatesReal = paramsRatesReal,
-                                                        bool1042 = bool1042
-                                                        )
-                        popOff = nv_steady_state(
-                                                        Omega = OmegaR*0, #rad/s
-                                                        I_s = I_s,   #rad/s
-                                                        I_p = I_p, #W/m^2
-                                                        gamma_phi = gamma_phi,   #Hz
-                                                        detuning = (det), #rad/s
-                                                        zeeman   = zeeman, #rad/s
-                                                        steadystatebool=True, 
-                                                        tEnd = 2e-6,
-                                                        gamma_eg=gamma_eg,
-                                                        gamma_isc_0=gamma_isc_0,
-                                                        gamma_isc_1=gamma_isc_1,
-                                                        gamma_isc_g0=gamma_isc_g0,
-                                                        gamma_isc_g1=gamma_isc_g1,
-                                                        gamma_s=gamma_s,
-                                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                                        sigma_p = sigma_p, # m^%-2
-                                                        sigma_s = sigma_s, # m^%-2
-                                                        lamb_s = lamb_s,   # IR probe
-                                                        lamb_p = lamb_p,    # green pump
-                                                        c = c_const, #m/s
-                                                        h = h,      # Planck constant [J·s]
-                                                        paramsRates = paramsRatesOnes,
-                                                        paramsRatesReal = paramsRatesReal,
-                                                        bool1042 = bool1042
-                                                        )
+                        popOn = nv_steady_state_default(
+                            Omega = OmegaR,
+                            I_s = I_s,
+                            I_p = I_p,
+                            detuning = (det),
+                            zeeman = zeeman,
+                            steadystatebool=True,
+                            bool1042 = bool1042,
+                        )
+                        popOff = nv_steady_state_default(
+                            Omega = OmegaR*0,
+                            I_s = I_s,
+                            I_p = I_p,
+                            detuning = (det),
+                            zeeman = zeeman,
+                            steadystatebool=True,
+                            tEnd = 2e-6,
+                            bool1042 = bool1042,
+                        )
                         delpop[k] = (popOn[7] - popOff[7])
                         mOn[k] = (popOn[7])
                         mOff[k] = (popOff[7])
@@ -267,6 +255,7 @@ def solveSensitivityVisSingle(OmegaR = gamma_phi,
                             lamb = 532e-9,
                             bool1042 = True,
                             returnAllParams = False):
+    """Sensitivity at one (OmegaR, I_p) point using the green(NV0)-PL contrast, via an adaptive detuning-bandwidth fit."""
     
     detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
     
@@ -274,63 +263,27 @@ def solveSensitivityVisSingle(OmegaR = gamma_phi,
     mOn = np.zeros(Npoints)
     
     
-    popOff = nv_steady_state(
-                                    Omega = OmegaR*0, #rad/s
-                                    I_s = 0,   #W/m^2
-                                    I_p = I_p, #W/m^2
-                                    gamma_phi = gamma_phi,   #Hz
-                                    detuning = zeeman, #rad/s
-                                    zeeman   = zeeman, #rad/s
-                                    gamma_eg=gamma_eg,
-                                    gamma_isc_0=gamma_isc_0,
-                                    gamma_isc_1=gamma_isc_1,
-                                    gamma_isc_g0=gamma_isc_g0,
-                                    gamma_isc_g1=gamma_isc_g1,
-                                    gamma_s=gamma_s,
-                                    gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                    gamma_NV0_em = gamma_NV0_em, #k_75
-                                    gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                    sigma_p = sigma_p, # m^%-2
-                                    sigma_s = sigma_s, # m^%-2
-                                    lamb_s = lamb_s,   # IR probe
-                                    lamb_p = lamb_p,    # green pump
-                                    c = c_const, #m/s
-                                    h = h,      # Planck constant [J·s]
-                                    paramsRates = paramsRatesOnes,
-                                    paramsRatesReal = paramsRatesReal
-                                    )
+    popOff = nv_steady_state_default(
+        Omega = OmegaR*0,
+        I_s = 0,
+        I_p = I_p,
+        detuning = zeeman,
+        zeeman = zeeman,
+    )
     ROff = (popOff[3] + popOff[4] + popOff[5])*gamma_eg
     
-    while True:
+    for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
         detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
         Cdet = np.zeros(Npoints)
         ROn = np.zeros(Npoints)
         for k, det in enumerate((detunings)):
-            popDet =    nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = 0,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = det, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
+            popDet =    nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = 0,
+                I_p = I_p,
+                detuning = det,
+                zeeman = zeeman,
+            )
             # Cdet[k] = popDet[7] - p7Off
             ROn[k] = (popDet[3] + popDet[4] + popDet[5])*gamma_eg
             Cdet[k] =  (ROff - ROn[k])/ROff
@@ -372,6 +325,7 @@ def solveSensitivitySingle(OmegaR = gamma_phi,
                             Npoints = 101,
                             lamb = 1042e-9,
                             bool1042 = True):
+    """Sensitivity at one (OmegaR, I_s, I_p) point using the IR-absorption contrast, via an adaptive detuning-bandwidth fit."""
     
     detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
     
@@ -379,63 +333,27 @@ def solveSensitivitySingle(OmegaR = gamma_phi,
     mOn = np.zeros(Npoints)
     
     
-    popOff = nv_steady_state(
-                                    Omega = OmegaR*0, #rad/s
-                                    I_s = I_s,   #W/m^2
-                                    I_p = I_p, #W/m^2
-                                    gamma_phi = gamma_phi,   #Hz
-                                    detuning = zeeman, #rad/s
-                                    zeeman   = zeeman, #rad/s
-                                    gamma_eg=gamma_eg,
-                                    gamma_isc_0=gamma_isc_0,
-                                    gamma_isc_1=gamma_isc_1,
-                                    gamma_isc_g0=gamma_isc_g0,
-                                    gamma_isc_g1=gamma_isc_g1,
-                                    gamma_s=gamma_s,
-                                    gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                    gamma_NV0_em = gamma_NV0_em, #k_75
-                                    gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                    sigma_p = sigma_p, # m^%-2
-                                    sigma_s = sigma_s, # m^%-2
-                                    lamb_s = lamb_s,   # IR probe
-                                    lamb_p = lamb_p,    # green pump
-                                    c = c_const, #m/s
-                                    h = h,      # Planck constant [J·s]
-                                    paramsRates = paramsRatesOnes,
-                                    paramsRatesReal = paramsRatesReal
-                                    )
+    popOff = nv_steady_state_default(
+        Omega = OmegaR*0,
+        I_s = I_s,
+        I_p = I_p,
+        detuning = zeeman,
+        zeeman = zeeman,
+    )
     p7Off = popOff[7]
     # p7Off = popOff[3] + popOff[4] + popOff[5]  
     
-    while True:
+    for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
         detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
         Cdet = np.zeros(Npoints)
         for k, det in enumerate((detunings)):
-            popDet =    nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = det, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
+            popDet =    nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = det,
+                zeeman = zeeman,
+            )
             Cdet[k] = popDet[7] - p7Off
             # Cdet[k] = -(popDet[3] + popDet[4] + popDet[5]) + p7Off
             
@@ -504,6 +422,7 @@ def solveSensitivitySingle(OmegaR = gamma_phi,
 #     return val
 
 def objective(trial: optuna.Trial):
+    """Optuna objective: sensitivity (via solveSensitivitySingle) to minimize over I_p/I_s/OmegaR."""
 
     # --- Log-parameterized search space ---
     log_Ip = trial.suggest_float("log10_Ip", 8, 8.6)
@@ -540,6 +459,7 @@ def objective(trial: optuna.Trial):
     return sens
 
 def objectiveVis(trial: optuna.Trial):
+    """Optuna objective: sensitivity (via solveSensitivityVisSingle) to minimize over I_p/OmegaR."""
 
     # --- Log-parameterized search space ---
     log_Ip = trial.suggest_float("log10_Ip", 7.5, 8.5)
@@ -568,6 +488,7 @@ def objectiveVis(trial: optuna.Trial):
     return sens
 
 def performVisOptimization():
+    """Run an Optuna study minimizing objectiveVis and print the best I_p/OmegaR found."""
     # --- Create study ---
     start_time = time.time()
     study = optuna.create_study(
@@ -646,39 +567,22 @@ def solvePopulationDetuningLineplot(saveBool = False,
                                     plotBool = True,
                                     returnBool = False,
                                     returnPops = False):
+    """Sweep microwave detuning at fixed drive powers and plot/return the resulting m_7 (IR-probed) line shape."""
     # detuning
     detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
     kappaTotal = np.zeros(Npoints)
     p7 = np.zeros(Npoints)
     pops = np.zeros([11, Npoints])
     for i, det in enumerate(detunings):
-        pop = nv_steady_state(
-                                        Omega = OmegaR, #rad/s
-                                        I_s = I_s,   #rad/s
-                                        I_p = I_p, #W/m^2
-                                        gamma_phi = gamma_phi,   #Hz
-                                        detuning = (det), #rad/s
-                                        zeeman   = zeeman, #rad/s
-                                        steadystatebool=True, 
-                                        gamma_eg=gamma_eg,
-                                        gamma_isc_0=gamma_isc_0,
-                                        gamma_isc_1=gamma_isc_1,
-                                        gamma_isc_g0=gamma_isc_g0,
-                                        gamma_isc_g1=gamma_isc_g1,
-                                        gamma_s=gamma_s,
-                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                        sigma_p = sigma_p, # m^%-2
-                                        sigma_s = sigma_s, # m^%-2
-                                        lamb_s = lamb_s,   # IR probe
-                                        lamb_p = lamb_p,    # green pump
-                                        c = c_const, #m/s
-                                        h = h,      # Planck constant [J·s]
-                                        paramsRates = paramsRatesOnes,
-                                        paramsRatesReal = paramsRatesReal,
-                                        bool1042 = bool1042
-                                        )
+        pop = nv_steady_state_default(
+            Omega = OmegaR,
+            I_s = I_s,
+            I_p = I_p,
+            detuning = (det),
+            zeeman = zeeman,
+            steadystatebool=True,
+            bool1042 = bool1042,
+        )
         p7[i] = (pop[7])
         pops[:, i] = pop
     
@@ -696,7 +600,6 @@ def solvePopulationDetuningLineplot(saveBool = False,
     y_shift_pplus  = np.roll(y, -2*shift_pts)
     y_shift_mminus = np.roll(y,  2*shift_pts)
 
-    y_total = (3*y + 2*y_shift_plus + 2*y_shift_minus + y_shift_pplus + y_shift_mminus)/3
     y_total = (3*y)/3
     
     if plotBool:
@@ -725,39 +628,22 @@ def solvePopulationDetuningLineplotPL(saveBool = False,
                                     bool1042 = False,
                                     plotBool = True,
                                     returnBool = False):
+    """Sweep microwave detuning at fixed drive powers and plot the resulting NV- PL rate line shape."""
     # detuning
     detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
     kappaTotal = np.zeros(Npoints)
     PLRate = np.zeros(Npoints)
     pops = np.zeros([11, Npoints])
     for i, det in enumerate(detunings):
-        pop = nv_steady_state(
-                                        Omega = OmegaR, #rad/s
-                                        I_s = I_s,   #rad/s
-                                        I_p = I_p, #W/m^2
-                                        gamma_phi = gamma_phi,   #Hz
-                                        detuning = (det), #rad/s
-                                        zeeman   = zeeman, #rad/s
-                                        steadystatebool=True, 
-                                        gamma_eg=gamma_eg,
-                                        gamma_isc_0=gamma_isc_0,
-                                        gamma_isc_1=gamma_isc_1,
-                                        gamma_isc_g0=gamma_isc_g0,
-                                        gamma_isc_g1=gamma_isc_g1,
-                                        gamma_s=gamma_s,
-                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                        sigma_p = sigma_p, # m^%-2
-                                        sigma_s = sigma_s, # m^%-2
-                                        lamb_s = lamb_s,   # IR probe
-                                        lamb_p = lamb_p,    # green pump
-                                        c = c_const, #m/s
-                                        h = h,      # Planck constant [J·s]
-                                        paramsRates = paramsRatesOnes,
-                                        paramsRatesReal = paramsRatesReal,
-                                        bool1042 = bool1042
-                                        )
+        pop = nv_steady_state_default(
+            Omega = OmegaR,
+            I_s = I_s,
+            I_p = I_p,
+            detuning = (det),
+            zeeman = zeeman,
+            steadystatebool=True,
+            bool1042 = bool1042,
+        )
         PLRate[i] = (pop[3] + pop[4]+pop[5])*gamma_eg
         pops[:, i] = pop
     
@@ -825,6 +711,7 @@ def solvePopulationDetuningLineplotPL(saveBool = False,
 
 
 def solvePopulationDetuningHyperfineLineplot(saveBool = False):
+    """Sweep detuning across the hyperfine triplet (+/- hyperfine split lines) and plot the summed m_7 signal."""
     # detuning
     OmegaR = gamma_phi
     I_p = 1e7
@@ -979,6 +866,68 @@ def solvePopulationDetuningHyperfineLineplot(saveBool = False):
     
     # plt.show()
 
+def _solvePopulationIR_worker(I_s, OmegaR, I_p, bw, Ndets):
+    """Compute (p7On, p7Off, nu, C) for one I_s point of solvePopulationIR.
+
+    Module-level (not nested) so it can be pickled and dispatched to a
+    ProcessPoolExecutor worker process -- see the parallelized loop in
+    solvePopulationIR. Each call starts from the function's own `bw` rather
+    than inheriting a previously-converged bw from a prior point (as the
+    original serial loop did), since points now run independently/out of
+    order; this can mean a few more bisection attempts per point but does
+    not change the converged nu/C values.
+    """
+    popOn = nv_steady_state_default(
+        Omega=OmegaR,
+        I_s=I_s,
+        I_p=I_p,
+        detuning=detuning,
+        zeeman=zeeman,
+        steadystatebool=True,
+    )
+    popOff = nv_steady_state_default(
+        Omega=OmegaR*0,
+        I_s=I_s,
+        I_p=I_p,
+        detuning=detuning,
+        zeeman=zeeman,
+        steadystatebool=True,
+    )
+    p7On_i = popOn[7]
+    p7Off_i = popOff[7]
+    nu_i = 0.0
+    C_i = 0.0
+
+    for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
+        detunings = np.linspace(detuning - bw, detuning + bw, Ndets)
+        Cdet = np.zeros(Ndets)
+        for k, det in enumerate(detunings):
+            popDet = nv_steady_state_default(
+                Omega=OmegaR,
+                I_s=I_s,
+                I_p=I_p,
+                detuning=det,
+                zeeman=zeeman,
+            )
+            Cdet[k] = (popDet[7]) - (p7Off_i)
+
+        peaks, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), Cdet)
+        if np.size(FWHM) < 1:
+            print('FWHM fitting didnt work')
+        elif FWHM < bw/1e9/(2*np.pi) and FWHM > bw/5/1e9/(2*np.pi):
+            nu_i = FWHM[0]*1e6
+            C_i = np.max(Cdet)
+            break
+        elif FWHM >= bw/2e9/2/np.pi:
+            bw = bw*2
+            continue
+        else:
+            bw = bw/1.6
+            continue
+
+    return p7On_i, p7Off_i, nu_i, C_i
+
+
 def solvePopulationIR(saveBool = False,
                             N_IR = 10,
                             N_OmegaR = 120,
@@ -989,9 +938,19 @@ def solvePopulationIR(saveBool = False,
                             bw = 0.005e9*2*np.pi,
                             Ndets = 51,
                             plotBool = True,
-                            logBoolI = False):
-    
-    
+                            logBoolI = False,
+                            parallelBool = True,
+                            maxWorkers = None):
+    """Sweep IR probe intensity I_s; fit contrast/linewidth vs power via an adaptive detuning scan at each point.
+
+    Each I_s point is independent (a fresh nv_steady_state solve + bisection
+    search), so when parallelBool=True the points are dispatched across
+    processes via ProcessPoolExecutor instead of run serially. Set
+    parallelBool=False to use the original serial loop (e.g. for comparison
+    or debugging).
+    """
+
+
     if logBoolI:
         I_IR = np.logspace(I_smin, I_smax, N_IR)
     else:
@@ -1001,118 +960,23 @@ def solvePopulationIR(saveBool = False,
     p7Off = np.zeros(N_IR)
     nu = np.zeros(N_IR)
     C = np.zeros(N_IR)
-    for i, I_s in enumerate(tqdm(I_IR, desc="IR intensity")):
-        popOn =         nv_steady_state(
-                                        Omega = OmegaR, #rad/s
-                                        I_s = I_s,   #rad/s
-                                        I_p = I_p, #W/m^2
-                                        gamma_phi = gamma_phi,   #Hz
-                                        detuning = detuning, #rad/s
-                                        zeeman   = zeeman, #rad/s
-                                        steadystatebool=True, 
-                                        gamma_eg=gamma_eg,
-                                        gamma_isc_0=gamma_isc_0,
-                                        gamma_isc_1=gamma_isc_1,
-                                        gamma_isc_g0=gamma_isc_g0,
-                                        gamma_isc_g1=gamma_isc_g1,
-                                        gamma_s=gamma_s,
-                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                        sigma_p = sigma_p, # m^%-2
-                                        sigma_s = sigma_s, # m^%-2
-                                        lamb_s = lamb_s,   # IR probe
-                                        lamb_p = lamb_p,    # green pump
-                                        c = c_const, #m/s
-                                        h = h,      # Planck constant [J·s]
-                                        paramsRates = paramsRatesOnes,
-                                        paramsRatesReal = paramsRatesReal
-                                        )
-        popOff = nv_steady_state(
-                                        Omega = OmegaR*0, #rad/s
-                                        I_s = I_s,   #rad/s
-                                        I_p = I_p, #W/m^2
-                                        gamma_phi = gamma_phi,   #Hz
-                                        detuning = detuning, #rad/s
-                                        zeeman   = zeeman, #rad/s
-                                        steadystatebool=True, 
-                                        gamma_eg=gamma_eg,
-                                        gamma_isc_0=gamma_isc_0,
-                                        gamma_isc_1=gamma_isc_1,
-                                        gamma_isc_g0=gamma_isc_g0,
-                                        gamma_isc_g1=gamma_isc_g1,
-                                        gamma_s=gamma_s,
-                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                        sigma_p = sigma_p, # m^%-2
-                                        sigma_s = sigma_s, # m^%-2
-                                        lamb_s = lamb_s,   # IR probe
-                                        lamb_p = lamb_p,    # green pump
-                                        c = c_const, #m/s
-                                        h = h,      # Planck constant [J·s]
-                                        paramsRates = paramsRatesOnes,
-                                        paramsRatesReal = paramsRatesReal
-                                        )
-        p7On[i] = (popOn[7])
-        p7Off[i] = (popOff[7])
-        p7[i] = (p7On[i])/p7Off[i]
-    
-        while True:
-            detunings = np.linspace(detuning - bw, detuning + bw, Ndets)
-            Cdet = np.zeros(Ndets)
-            for k, det in enumerate(detunings):
-                popDet =    nv_steady_state(
-                                                Omega = OmegaR, #rad/s
-                                                I_s = I_s,   #rad/s
-                                                I_p = I_p, #W/m^2
-                                                gamma_phi = gamma_phi,   #Hz
-                                                detuning = det, #rad/s
-                                                zeeman   = zeeman, #rad/s
-                                                # steadystatebool=True, 
-                                                gamma_eg=gamma_eg,
-                                                gamma_isc_0=gamma_isc_0,
-                                                gamma_isc_1=gamma_isc_1,
-                                                gamma_isc_g0=gamma_isc_g0,
-                                                gamma_isc_g1=gamma_isc_g1,
-                                                gamma_s=gamma_s,
-                                                gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                                gamma_NV0_em = gamma_NV0_em, #k_75
-                                                gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                                sigma_p = sigma_p, # m^%-2
-                                                sigma_s = sigma_s, # m^%-2
-                                                lamb_s = lamb_s,   # IR probe
-                                                lamb_p = lamb_p,    # green pump
-                                                c = c_const, #m/s
-                                                h = h,      # Planck constant [J·s]
-                                                paramsRates = paramsRatesOnes,
-                                                paramsRatesReal = paramsRatesReal
-                                                )
-                Cdet[k] = (popDet[7])-(p7Off[i])
-                
-            
-            peaks, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), Cdet)
-            # plt.plot(detunings/1e9/(2*np.pi),Cdet)
-            # print('FWHM ', FWHM, ' bw ', bw/1e9/(2*np.pi))
-            # plt.show()
-            if np.size(FWHM) < 1:
-                print('FWHM fitting didnt work')
-            # elif (np.max(Cdet) - np.min(Cdet))/np.max(Cdet) < 0.01:
-            #     bw = bw*2
-            #     continue
-            elif FWHM < bw/1e9/(2*np.pi) and FWHM > bw/5/1e9/(2*np.pi):
-                nu[i] = FWHM[0]*1e6
-                C[i] = np.max(Cdet)
-                break
-            elif FWHM >= bw/2e9/2/np.pi:
-                bw = bw*2
-                continue
-            else:
-                bw = bw/1.6
-                continue
-            
+
+    if parallelBool:
+        with ProcessPoolExecutor(max_workers=maxWorkers) as executor:
+            futures = [
+                executor.submit(_solvePopulationIR_worker, I_s, OmegaR, I_p, bw, Ndets)
+                for I_s in I_IR
+            ]
+            for i, future in enumerate(tqdm(futures, desc="IR intensity (parallel)")):
+                p7On[i], p7Off[i], nu[i], C[i] = future.result()
+                p7[i] = p7On[i]/p7Off[i]
+    else:
+        for i, I_s in enumerate(tqdm(I_IR, desc="IR intensity")):
+            p7On[i], p7Off[i], nu[i], C[i] = _solvePopulationIR_worker(I_s, OmegaR, I_p, bw, Ndets)
+            p7[i] = p7On[i]/p7Off[i]
+
     # C = C/np.max(C)#
-    power = I_IR/np.max(I_IR)*31.7050
+    power = I_IR/np.max(I_IR)*31.7050  # TODO(nick): confirm meaning/origin of 31.7050 (calibration factor?)
     if plotBool:
         fig, ax = plot_custom(
            PRQuantumWidthFull*0.33, 0.28*PRQuantumWidthFull,  
@@ -1148,6 +1012,7 @@ def solvePopulationGreen(saveBool = False,
                             bw = 0.005e9*2*np.pi,
                             Ndets = 51,
                             plotBool = True):
+    """Sweep green pump intensity I_p; fit contrast/linewidth vs power via an adaptive detuning scan at each point."""
     
     
     
@@ -1159,95 +1024,39 @@ def solvePopulationGreen(saveBool = False,
     nu = np.zeros(N_Green)
     C = np.zeros(N_Green)
     for i, I_p in enumerate(tqdm(I_g, desc="Green intensity")):
-        populations =         nv_steady_state(
-                                        Omega = OmegaR, #rad/s
-                                        I_s = I_s,   #rad/s
-                                        I_p = I_p, #W/m^2
-                                        gamma_phi = gamma_phi,   #Hz
-                                        detuning = detuning, #rad/s
-                                        zeeman   = zeeman, #rad/s
-                                        steadystatebool=True, 
-                                        tEnd = 2e-6,
-                                        gamma_eg=gamma_eg,
-                                        gamma_isc_0=gamma_isc_0,
-                                        gamma_isc_1=gamma_isc_1,
-                                        gamma_isc_g0=gamma_isc_g0,
-                                        gamma_isc_g1=gamma_isc_g1,
-                                        gamma_s=gamma_s,
-                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                        sigma_p = sigma_p, # m^%-2
-                                        sigma_s = sigma_s, # m^%-2
-                                        lamb_s = lamb_s,   # IR probe
-                                        lamb_p = lamb_p,    # green pump
-                                        c = c_const, #m/s
-                                        h = h,      # Planck constant [J·s]
-                                        paramsRates = paramsRatesOnes,
-                                        paramsRatesReal = paramsRatesReal
-                                        )
-        populationsDetuning = nv_steady_state(
-                                        Omega = OmegaR*0, #rad/s
-                                        I_s = I_s,   #rad/s
-                                        I_p = I_p, #W/m^2
-                                        gamma_phi = gamma_phi,   #Hz
-                                        detuning = detuning, #rad/s
-                                        zeeman   = zeeman, #rad/s
-                                        steadystatebool=True, 
-                                        tEnd = 2e-6,
-                                        gamma_eg=gamma_eg,
-                                        gamma_isc_0=gamma_isc_0,
-                                        gamma_isc_1=gamma_isc_1,
-                                        gamma_isc_g0=gamma_isc_g0,
-                                        gamma_isc_g1=gamma_isc_g1,
-                                        gamma_s=gamma_s,
-                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                        sigma_p = sigma_p, # m^%-2
-                                        sigma_s = sigma_s, # m^%-2
-                                        lamb_s = lamb_s,   # IR probe
-                                        lamb_p = lamb_p,    # green pump
-                                        c = c_const, #m/s
-                                        h = h,      # Planck constant [J·s]
-                                        paramsRates = paramsRatesOnes,
-                                        paramsRatesReal = paramsRatesReal
-                                        )
+        populations =         nv_steady_state_default(
+            Omega = OmegaR,
+            I_s = I_s,
+            I_p = I_p,
+            detuning = detuning,
+            zeeman = zeeman,
+            steadystatebool=True,
+            tEnd = 2e-6,
+        )
+        populationsDetuning = nv_steady_state_default(
+            Omega = OmegaR*0,
+            I_s = I_s,
+            I_p = I_p,
+            detuning = detuning,
+            zeeman = zeeman,
+            steadystatebool=True,
+            tEnd = 2e-6,
+        )
         p7On[i] = (populations[7])
         p7Off[i] = (populationsDetuning[7])
-        p7[i] = (p7On[i])/p7Off[i]
         p7[i] = p7On[i]-p7Off[i]
     
-        while True:
+        for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
             detunings = np.linspace(detuning - bw, detuning + bw, Ndets)
             Cdet = np.zeros(Ndets)
             for k, det in enumerate(detunings):
-                popDet =    nv_steady_state(
-                                                Omega = OmegaR, #rad/s
-                                                I_s = I_s,   #rad/s
-                                                I_p = I_p, #W/m^2
-                                                gamma_phi = gamma_phi,   #Hz
-                                                detuning = det, #rad/s
-                                                zeeman   = zeeman, #rad/s
-                                                # steadystatebool=True, 
-                                                gamma_eg=gamma_eg,
-                                                gamma_isc_0=gamma_isc_0,
-                                                gamma_isc_1=gamma_isc_1,
-                                                gamma_isc_g0=gamma_isc_g0,
-                                                gamma_isc_g1=gamma_isc_g1,
-                                                gamma_s=gamma_s,
-                                                gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                                gamma_NV0_em = gamma_NV0_em, #k_75
-                                                gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                                sigma_p = sigma_p, # m^%-2
-                                                sigma_s = sigma_s, # m^%-2
-                                                lamb_s = lamb_s,   # IR probe
-                                                lamb_p = lamb_p,    # green pump
-                                                c = c_const, #m/s
-                                                h = h,      # Planck constant [J·s]
-                                                paramsRates = paramsRatesOnes,
-                                                paramsRatesReal = paramsRatesReal
-                                                )
+                popDet =    nv_steady_state_default(
+                    Omega = OmegaR,
+                    I_s = I_s,
+                    I_p = I_p,
+                    detuning = det,
+                    zeeman = zeeman,
+                )
                 Cdet[k] = (popDet[7])/(p7Off[i]+ p7On[i])*2
                 
             
@@ -1271,7 +1080,7 @@ def solvePopulationGreen(saveBool = False,
                 bw = bw/3
                 continue
     
-    C = C/np.max(C)*6.7e-4
+    C = C/np.max(C)*6.7e-4  # TODO(nick): confirm meaning/origin of 6.7e-4 (calibration factor?)
     if plotBool:
         fig, ax = plot_custom(
            PRQuantumWidthFull*0.33, 0.28*PRQuantumWidthFull,  
@@ -1307,10 +1116,10 @@ def solvePopulationOmegaR(saveBool = False,
                             bw = 0.02e9*2*np.pi,
                             Ndets = 201,
                             plotBool = True):
+    """Sweep microwave Rabi frequency OmegaR; fit contrast/linewidth via an adaptive detuning scan at each point."""
     
     
     
-    OmegaRArr = np.logspace(OmegaRmin, OmegaRmax, N_OmegaR)
     OmegaRArr = np.linspace(10**OmegaRmin, 10**OmegaRmax, N_OmegaR)
     p7 = np.zeros(N_OmegaR)
     p7On = np.zeros(N_OmegaR)
@@ -1318,95 +1127,39 @@ def solvePopulationOmegaR(saveBool = False,
     nu = np.zeros(N_OmegaR)
     C = np.zeros(N_OmegaR)
     for i, OmegaR in enumerate(tqdm(OmegaRArr, desc="Rabi freq")):
-        populations =         nv_steady_state(
-                                        Omega = OmegaR, #rad/s
-                                        I_s = I_s,   #rad/s
-                                        I_p = I_p, #W/m^2
-                                        gamma_phi = gamma_phi,   #Hz
-                                        detuning = detuning, #rad/s
-                                        zeeman   = zeeman, #rad/s
-                                        steadystatebool=True, 
-                                        tEnd = 2e-6,
-                                        gamma_eg=gamma_eg,
-                                        gamma_isc_0=gamma_isc_0,
-                                        gamma_isc_1=gamma_isc_1,
-                                        gamma_isc_g0=gamma_isc_g0,
-                                        gamma_isc_g1=gamma_isc_g1,
-                                        gamma_s=gamma_s,
-                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                        sigma_p = sigma_p, # m^%-2
-                                        sigma_s = sigma_s, # m^%-2
-                                        lamb_s = lamb_s,   # IR probe
-                                        lamb_p = lamb_p,    # green pump
-                                        c = c_const, #m/s
-                                        h = h,      # Planck constant [J·s]
-                                        paramsRates = paramsRatesOnes,
-                                        paramsRatesReal = paramsRatesReal
-                                        )
-        populationsDetuning = nv_steady_state(
-                                        Omega = OmegaR*0, #rad/s
-                                        I_s = I_s,   #rad/s
-                                        I_p = I_p, #W/m^2
-                                        gamma_phi = gamma_phi,   #Hz
-                                        detuning = detuning, #rad/s
-                                        zeeman   = zeeman, #rad/s
-                                        steadystatebool=True, 
-                                        tEnd = 2e-6,
-                                        gamma_eg=gamma_eg,
-                                        gamma_isc_0=gamma_isc_0,
-                                        gamma_isc_1=gamma_isc_1,
-                                        gamma_isc_g0=gamma_isc_g0,
-                                        gamma_isc_g1=gamma_isc_g1,
-                                        gamma_s=gamma_s,
-                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                        sigma_p = sigma_p, # m^%-2
-                                        sigma_s = sigma_s, # m^%-2
-                                        lamb_s = lamb_s,   # IR probe
-                                        lamb_p = lamb_p,    # green pump
-                                        c = c_const, #m/s
-                                        h = h,      # Planck constant [J·s]
-                                        paramsRates = paramsRatesOnes,
-                                        paramsRatesReal = paramsRatesReal
-                                        )
+        populations =         nv_steady_state_default(
+            Omega = OmegaR,
+            I_s = I_s,
+            I_p = I_p,
+            detuning = detuning,
+            zeeman = zeeman,
+            steadystatebool=True,
+            tEnd = 2e-6,
+        )
+        populationsDetuning = nv_steady_state_default(
+            Omega = OmegaR*0,
+            I_s = I_s,
+            I_p = I_p,
+            detuning = detuning,
+            zeeman = zeeman,
+            steadystatebool=True,
+            tEnd = 2e-6,
+        )
         p7On[i] = (populations[7])
         p7Off[i] = (populationsDetuning[7])
-        p7[i] = (p7On[i])/p7Off[i]
         p7[i] = p7On[i]-p7Off[i]
     
-        while True:
+        for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
             detunings = np.linspace(detuning - bw, detuning + bw, Ndets)
             Cdet = np.zeros(Ndets)
             for k, det in enumerate(detunings):
-                popDet =    nv_steady_state(
-                                                Omega = OmegaR, #rad/s
-                                                I_s = I_s,   #rad/s
-                                                I_p = I_p, #W/m^2
-                                                gamma_phi = gamma_phi,   #Hz
-                                                detuning = det, #rad/s
-                                                zeeman   = zeeman, #rad/s
-                                                # steadystatebool=True, 
-                                                gamma_eg=gamma_eg,
-                                                gamma_isc_0=gamma_isc_0,
-                                                gamma_isc_1=gamma_isc_1,
-                                                gamma_isc_g0=gamma_isc_g0,
-                                                gamma_isc_g1=gamma_isc_g1,
-                                                gamma_s=gamma_s,
-                                                gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                                gamma_NV0_em = gamma_NV0_em, #k_75
-                                                gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                                sigma_p = sigma_p, # m^%-2
-                                                sigma_s = sigma_s, # m^%-2
-                                                lamb_s = lamb_s,   # IR probe
-                                                lamb_p = lamb_p,    # green pump
-                                                c = c_const, #m/s
-                                                h = h,      # Planck constant [J·s]
-                                                paramsRates = paramsRatesOnes,
-                                                paramsRatesReal = paramsRatesReal
-                                                )
+                popDet =    nv_steady_state_default(
+                    Omega = OmegaR,
+                    I_s = I_s,
+                    I_p = I_p,
+                    detuning = det,
+                    zeeman = zeeman,
+                )
                 # Cdet[k] = (popDet[7])/(p7Off[i]+ p7On[i])*2
                 Cdet[k] = popDet[7]-p7Off[i]
                 
@@ -1471,6 +1224,7 @@ def solvePopulationIROmegaR(saveBool = False,
                             OmegaROpt = 0,
                             I_sOpt = 0,
                             bool1042 = False):
+    """2D sweep of IR intensity vs Rabi frequency; plot the m_7 on/off population contrast as a contour map."""
     
     I_IR = np.logspace(I_smin, I_smax, N_IR)
     OmegaRArr = np.logspace(OmegaRmin, OmegaRmax, N_OmegaR)
@@ -1479,62 +1233,26 @@ def solvePopulationIROmegaR(saveBool = False,
     p7Off = np.zeros([N_IR, N_OmegaR])
     for i, I_s in enumerate(tqdm(I_IR, desc="IRintensity")):
         for j, OmegaR in enumerate(OmegaRArr):
-            populations =         nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            tEnd = 2e-6,
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal,
-                                            bool1042 = bool1042
-                                            )
-            populationsDetuning = nv_steady_state(
-                                            Omega = OmegaR*0, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            tEnd = 2e-6,
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal,
-                                            bool1042 = bool1042
-                                            )
+            populations =         nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+                steadystatebool=True,
+                tEnd = 2e-6,
+                bool1042 = bool1042,
+            )
+            populationsDetuning = nv_steady_state_default(
+                Omega = OmegaR*0,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+                steadystatebool=True,
+                tEnd = 2e-6,
+                bool1042 = bool1042,
+            )
             # p7[i,j] = (populations[7] - populationsDetuning[7])
             p7On[i,j] = (populations[7])
             p7Off[i,j] = (populationsDetuning[7])
@@ -1762,6 +1480,7 @@ def solveNVIRAbs_GreenOmegaR(saveBool = False,
                             I_sOpt = 0,
                             bw = 0.01e9*2*np.pi,
                             Ndets = 51):
+    """2D sweep of green power vs Rabi frequency; compute IR-absorption sensitivity via an adaptive detuning fit and save to IRAbsfits.npz."""
     
     I_green = np.logspace(I_pmin, I_pmax, N_green)
     OmegaRArr = np.logspace(OmegaRmin, OmegaRmax, N_OmegaR)
@@ -1771,58 +1490,20 @@ def solveNVIRAbs_GreenOmegaR(saveBool = False,
     R_off = np.zeros([N_green, N_OmegaR])
     for i, I_p in enumerate(tqdm(I_green, desc="Green intensity")):
         for j, OmegaR in enumerate(tqdm(OmegaRArr, desc="OmegaR", leave=False)):
-            popOn =         nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = I_sOpt,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            # steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
-            popOff = nv_steady_state(
-                                            Omega = OmegaR*0, #rad/s
-                                            I_s = I_sOpt,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            # steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
+            popOn =         nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = I_sOpt,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
+            popOff = nv_steady_state_default(
+                Omega = OmegaR*0,
+                I_s = I_sOpt,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
                 
             # The absorption rate is compared to the input photon rate of a focused beam
             R_photon_gaussian = I_sOpt*np.pi*lamb_s**3/(2*h*c_const)
@@ -1831,36 +1512,17 @@ def solveNVIRAbs_GreenOmegaR(saveBool = False,
             R_off[i,j] = (popOff[7])*I_sOpt*sigma_s/(h*c_const/lamb_s)
             C[i,j] = (R_on[i,j]-R_off[i,j])/(R_photon_gaussian-R_off[i,j])
 
-            while True:
+            for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
                 detunings = np.linspace(detuning - bw, detuning + bw, Ndets)
                 Cdet = np.zeros(Ndets)
                 for k, det in enumerate(detunings):
-                    popDet =    nv_steady_state(
-                                                    Omega = OmegaR, #rad/s
-                                                    I_s = I_sOpt,   #rad/s
-                                                    I_p = I_p, #W/m^2
-                                                    gamma_phi = gamma_phi,   #Hz
-                                                    detuning = det, #rad/s
-                                                    zeeman   = zeeman, #rad/s
-                                                    # steadystatebool=True, 
-                                                    gamma_eg=gamma_eg,
-                                                    gamma_isc_0=gamma_isc_0,
-                                                    gamma_isc_1=gamma_isc_1,
-                                                    gamma_isc_g0=gamma_isc_g0,
-                                                    gamma_isc_g1=gamma_isc_g1,
-                                                    gamma_s=gamma_s,
-                                                    gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                                    gamma_NV0_em = gamma_NV0_em, #k_75
-                                                    gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                                    sigma_p = sigma_p, # m^%-2
-                                                    sigma_s = sigma_s, # m^%-2
-                                                    lamb_s = lamb_s,   # IR probe
-                                                    lamb_p = lamb_p,    # green pump
-                                                    c = c_const, #m/s
-                                                    h = h,      # Planck constant [J·s]
-                                                    paramsRates = paramsRatesOnes,
-                                                    paramsRatesReal = paramsRatesReal
-                                                    )
+                    popDet =    nv_steady_state_default(
+                        Omega = OmegaR,
+                        I_s = I_sOpt,
+                        I_p = I_p,
+                        detuning = det,
+                        zeeman = zeeman,
+                    )
                     Cdet[k] = -(R_off[i,j] - ((popDet[7])*I_sOpt*sigma_s/(h*c_const/lamb_s)))/R_off[i,j]
                     
                 
@@ -1953,6 +1615,7 @@ def solveNVPL_GreenOmegaR(saveBool = False,
                             I_pOpt = 0,
                             bw = 0.01e9*2*np.pi,
                             Ndets = 51):
+    """2D sweep of green power vs Rabi frequency; compute NV- PL (states 3-5) sensitivity via an adaptive detuning fit and save to IRPLfits.npz."""
     
     I_green = np.logspace(I_pmin, I_pmax, N_green)
     OmegaRArr = np.logspace(OmegaRmin, OmegaRmax, N_OmegaR)
@@ -1962,93 +1625,36 @@ def solveNVPL_GreenOmegaR(saveBool = False,
     R_off = np.zeros([N_green, N_OmegaR])
     for i, I_p in enumerate(tqdm(I_green, desc="Green intensity")):
         for j, OmegaR in enumerate(tqdm(OmegaRArr, desc="OmegaR", leave=False)):
-            popOn =         nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = 0,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            # steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
-            popOff = nv_steady_state(
-                                            Omega = OmegaR*0, #rad/s
-                                            I_s = 0,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            # steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
+            popOn =         nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = 0,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
+            popOff = nv_steady_state_default(
+                Omega = OmegaR*0,
+                I_s = 0,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
                 
             R_on[i,j] = (popOn[3] + popOn[4] + popOn[5])#*gamma_eg
             R_off[i,j] = (popOff[3] + popOff[4] + popOff[5])#*gamma_eg
             C[i,j] = (R_off[i,j]-R_on[i,j])/R_off[i,j] 
 
-            while True:
+            for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
                 detunings = np.linspace(detuning - bw, detuning + bw, Ndets)
                 Cdet = np.zeros(Ndets)
                 for k, det in enumerate(detunings):
-                    popDet =    nv_steady_state(
-                                                    Omega = OmegaR, #rad/s
-                                                    I_s = 0,   #rad/s
-                                                    I_p = I_p, #W/m^2
-                                                    gamma_phi = gamma_phi,   #Hz
-                                                    detuning = det, #rad/s
-                                                    zeeman   = zeeman, #rad/s
-                                                    # steadystatebool=True, 
-                                                    gamma_eg=gamma_eg,
-                                                    gamma_isc_0=gamma_isc_0,
-                                                    gamma_isc_1=gamma_isc_1,
-                                                    gamma_isc_g0=gamma_isc_g0,
-                                                    gamma_isc_g1=gamma_isc_g1,
-                                                    gamma_s=gamma_s,
-                                                    gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                                    gamma_NV0_em = gamma_NV0_em, #k_75
-                                                    gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                                    sigma_p = sigma_p, # m^%-2
-                                                    sigma_s = sigma_s, # m^%-2
-                                                    lamb_s = lamb_s,   # IR probe
-                                                    lamb_p = lamb_p,    # green pump
-                                                    c = c_const, #m/s
-                                                    h = h,      # Planck constant [J·s]
-                                                    paramsRates = paramsRatesOnes,
-                                                    paramsRatesReal = paramsRatesReal
-                                                    )
+                    popDet =    nv_steady_state_default(
+                        Omega = OmegaR,
+                        I_s = 0,
+                        I_p = I_p,
+                        detuning = det,
+                        zeeman = zeeman,
+                    )
                     Cdet[k] = (R_off[i,j] - (popDet[3] + popDet[4] + popDet[5]))/R_off[i,j]
                     
                 
@@ -2136,6 +1742,7 @@ def solveNV0PL_GreenOmegaR(saveBool = False,
                             I_pOpt = 0,
                             bw = 0.01e9*2*np.pi,
                             Ndets = 51):
+    """2D sweep of green power vs Rabi frequency; compute NV0 PL (state 10) sensitivity via an adaptive detuning fit and save to NV0PLfits.npz."""
     
     I_green = np.logspace(I_pmin, I_pmax, N_green)
     OmegaRArr = np.logspace(OmegaRmin, OmegaRmax, N_OmegaR)
@@ -2145,93 +1752,36 @@ def solveNV0PL_GreenOmegaR(saveBool = False,
     R_off = np.zeros([N_green, N_OmegaR])
     for i, I_p in enumerate(tqdm(I_green, desc="Green intensity")):
         for j, OmegaR in enumerate(tqdm(OmegaRArr, desc="OmegaR", leave=False)):
-            popOn =         nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = 0,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            # steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
-            popOff = nv_steady_state(
-                                            Omega = OmegaR*0, #rad/s
-                                            I_s = 0,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            # steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
+            popOn =         nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = 0,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
+            popOff = nv_steady_state_default(
+                Omega = OmegaR*0,
+                I_s = 0,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
                 
             R_on[i,j] = (popOn[10])*gamma_NV0_eg
             R_off[i,j] = (popOff[10])*gamma_NV0_eg
             C[i,j] = (R_off[i,j]-R_on[i,j])/R_off[i,j]
 
-            while True:
+            for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
                 detunings = np.linspace(detuning - bw, detuning + bw, Ndets)
                 Cdet = np.zeros(Ndets)
                 for k, det in enumerate(detunings):
-                    popDet =    nv_steady_state(
-                                                    Omega = OmegaR, #rad/s
-                                                    I_s = 0,   #rad/s
-                                                    I_p = I_p, #W/m^2
-                                                    gamma_phi = gamma_phi,   #Hz
-                                                    detuning = det, #rad/s
-                                                    zeeman   = zeeman, #rad/s
-                                                    # steadystatebool=True, 
-                                                    gamma_eg=gamma_eg,
-                                                    gamma_isc_0=gamma_isc_0,
-                                                    gamma_isc_1=gamma_isc_1,
-                                                    gamma_isc_g0=gamma_isc_g0,
-                                                    gamma_isc_g1=gamma_isc_g1,
-                                                    gamma_s=gamma_s,
-                                                    gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                                    gamma_NV0_em = gamma_NV0_em, #k_75
-                                                    gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                                    sigma_p = sigma_p, # m^%-2
-                                                    sigma_s = sigma_s, # m^%-2
-                                                    lamb_s = lamb_s,   # IR probe
-                                                    lamb_p = lamb_p,    # green pump
-                                                    c = c_const, #m/s
-                                                    h = h,      # Planck constant [J·s]
-                                                    paramsRates = paramsRatesOnes,
-                                                    paramsRatesReal = paramsRatesReal
-                                                    )
+                    popDet =    nv_steady_state_default(
+                        Omega = OmegaR,
+                        I_s = 0,
+                        I_p = I_p,
+                        detuning = det,
+                        zeeman = zeeman,
+                    )
                     Cdet[k] = (R_off[i,j] - (popDet[10])*gamma_NV0_eg)/R_off[i,j]
                     
                 
@@ -2321,6 +1871,7 @@ def solveNVIRPL_GreenOmegaR(saveBool = False,
                             I_pOpt = 0,
                             bw = 0.01e9*2*np.pi,
                             Ndets = 51):
+    """2D sweep of green power vs Rabi frequency; compute singlet IR emission (state 6) sensitivity via an adaptive detuning fit and save to IRPLfits.npz."""
     
     I_green = np.logspace(I_pmin, I_pmax, N_green)
     OmegaRArr = np.logspace(OmegaRmin, OmegaRmax, N_OmegaR)
@@ -2330,93 +1881,36 @@ def solveNVIRPL_GreenOmegaR(saveBool = False,
     R_off = np.zeros([N_green, N_OmegaR])
     for i, I_p in enumerate(tqdm(I_green, desc="Green intensity")):
         for j, OmegaR in enumerate(tqdm(OmegaRArr, desc="OmegaR", leave=False)):
-            popOn =         nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = 0,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            # steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
-            popOff = nv_steady_state(
-                                            Omega = OmegaR*0, #rad/s
-                                            I_s = 0,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            # steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
+            popOn =         nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = 0,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
+            popOff = nv_steady_state_default(
+                Omega = OmegaR*0,
+                I_s = 0,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
                 
             R_on[i,j] = (popOn[6])*gamma_s
             R_off[i,j] = (popOff[6])*gamma_s
             C[i,j] = -(R_off[i,j]-R_on[i,j])/R_off[i,j]
 
-            while True:
+            for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
                 detunings = np.linspace(detuning - bw, detuning + bw, Ndets)
                 Cdet = np.zeros(Ndets)
                 for k, det in enumerate(detunings):
-                    popDet =    nv_steady_state(
-                                                    Omega = OmegaR, #rad/s
-                                                    I_s = 0,   #rad/s
-                                                    I_p = I_p, #W/m^2
-                                                    gamma_phi = gamma_phi,   #Hz
-                                                    detuning = det, #rad/s
-                                                    zeeman   = zeeman, #rad/s
-                                                    # steadystatebool=True, 
-                                                    gamma_eg=gamma_eg,
-                                                    gamma_isc_0=gamma_isc_0,
-                                                    gamma_isc_1=gamma_isc_1,
-                                                    gamma_isc_g0=gamma_isc_g0,
-                                                    gamma_isc_g1=gamma_isc_g1,
-                                                    gamma_s=gamma_s,
-                                                    gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                                    gamma_NV0_em = gamma_NV0_em, #k_75
-                                                    gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                                    sigma_p = sigma_p, # m^%-2
-                                                    sigma_s = sigma_s, # m^%-2
-                                                    lamb_s = lamb_s,   # IR probe
-                                                    lamb_p = lamb_p,    # green pump
-                                                    c = c_const, #m/s
-                                                    h = h,      # Planck constant [J·s]
-                                                    paramsRates = paramsRatesOnes,
-                                                    paramsRatesReal = paramsRatesReal
-                                                    )
+                    popDet =    nv_steady_state_default(
+                        Omega = OmegaR,
+                        I_s = 0,
+                        I_p = I_p,
+                        detuning = det,
+                        zeeman = zeeman,
+                    )
                     Cdet[k] = -(R_off[i,j] - (popDet[6])*gamma_s)/R_off[i,j]
                     
                 
@@ -2503,6 +1997,7 @@ def solvePopulationIRGreen(saveBool = False,
                             I_sOpt = 0,
                             I_pOpt = 0,
                             bool1042 = False):
+    """2D sweep of IR intensity vs green intensity; plot the m_7 on/off population contrast as a contour map."""
     
     I_IR = np.logspace(I_smin, I_smax, N_IR)
     I_green = np.logspace(I_pmin, I_pmax, N_green)
@@ -2511,62 +2006,26 @@ def solvePopulationIRGreen(saveBool = False,
     p7Off = np.zeros([N_IR, N_green])
     for i, I_s in enumerate(tqdm(I_IR, desc="IR intensity")):
         for j, I_p in enumerate(I_green):
-            populations =         nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            tEnd = 2e-6,
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal,
-                                            bool1042 = bool1042
-                                            )
-            populationsDetuning = nv_steady_state(
-                                            Omega = OmegaR*0, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            tEnd = 2e-6,
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal,
-                                            bool1042 = bool1042
-                                            )
+            populations =         nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+                steadystatebool=True,
+                tEnd = 2e-6,
+                bool1042 = bool1042,
+            )
+            populationsDetuning = nv_steady_state_default(
+                Omega = OmegaR*0,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+                steadystatebool=True,
+                tEnd = 2e-6,
+                bool1042 = bool1042,
+            )
             # p7[i,j] = (populations[7] - populationsDetuning[7])
             p7On[i,j] = (populations[7])
             p7Off[i,j] = (populationsDetuning[7])
@@ -2619,6 +2078,7 @@ def solvePopulationIRGreenOmegaR(saveBool = False,
                             I_pOpt = 0,
                             OmegaROpt = 6,
                             bool1042 = False):
+    """Three pairwise 2D sweeps (IR/green, IR/Rabi, green/Rabi) of the m_7 contrast, plotted as a shared-colorbar contour panel."""
     
     fig, ax = plot_custom(
        PRQuantumWidthFull*0.32, 0.53*PRQuantumWidthFull, 
@@ -2640,186 +2100,78 @@ def solvePopulationIRGreenOmegaR(saveBool = False,
     p7Off = np.zeros([N, N])
     for i, I_s in enumerate(tqdm(I_IR, desc="IR/Green")):
         for j, I_p in enumerate(I_green):
-            pOn =         nv_steady_state(
-                                            Omega = OmegaROpt*2*np.pi, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            tEnd = 2e-6,
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal,
-                                            bool1042 = bool1042
-                                            )
-            pOff = nv_steady_state(
-                                            Omega = 0, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            tEnd = 2e-6,
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal,
-                                            bool1042 = bool1042
-                                            )
+            pOn =         nv_steady_state_default(
+                Omega = OmegaROpt*2*np.pi,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+                steadystatebool=True,
+                tEnd = 2e-6,
+                bool1042 = bool1042,
+            )
+            pOff = nv_steady_state_default(
+                Omega = 0,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+                steadystatebool=True,
+                tEnd = 2e-6,
+                bool1042 = bool1042,
+            )
             p7On[i,j] = (pOn[7])
             p7Off[i,j] = (pOff[7])
             p7IRGreen[i,j] = (p7On[i,j] - p7Off[i,j])
             
     for i, I_s in enumerate(tqdm(I_IR, desc="IR/Rabi")):
         for j, OmegaR in enumerate(OmegaRArr):
-            pOn =         nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_pOpt, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            tEnd = 2e-6,
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal,
-                                            bool1042 = bool1042
-                                            )
-            pOff = nv_steady_state(
-                                            Omega = 0, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_pOpt, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            tEnd = 2e-6,
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal,
-                                            bool1042 = bool1042
-                                            )
+            pOn =         nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = I_s,
+                I_p = I_pOpt,
+                detuning = detuning,
+                zeeman = zeeman,
+                steadystatebool=True,
+                tEnd = 2e-6,
+                bool1042 = bool1042,
+            )
+            pOff = nv_steady_state_default(
+                Omega = 0,
+                I_s = I_s,
+                I_p = I_pOpt,
+                detuning = detuning,
+                zeeman = zeeman,
+                steadystatebool=True,
+                tEnd = 2e-6,
+                bool1042 = bool1042,
+            )
             p7On[i,j] = (pOn[7])
             p7Off[i,j] = (pOff[7])
             p7IRRabi[i,j] = (p7On[i,j] - p7Off[i,j])
             
     for i, I_p in enumerate(tqdm(I_green, desc="Green/Rabi")):
         for j, OmegaR in enumerate(OmegaRArr):
-            pOn =         nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = I_sOpt,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            tEnd = 2e-6,
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal,
-                                            bool1042 = bool1042
-                                            )
-            pOff = nv_steady_state(
-                                            Omega = 0, #rad/s
-                                            I_s = I_sOpt,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            tEnd = 2e-6,
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal,
-                                            bool1042 = bool1042
-                                            )
+            pOn =         nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = I_sOpt,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+                steadystatebool=True,
+                tEnd = 2e-6,
+                bool1042 = bool1042,
+            )
+            pOff = nv_steady_state_default(
+                Omega = 0,
+                I_s = I_sOpt,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+                steadystatebool=True,
+                tEnd = 2e-6,
+                bool1042 = bool1042,
+            )
             p7On[i,j] = (pOn[7])
             p7Off[i,j] = (pOff[7])
             p7GreenRabi[i,j] = (p7On[i,j] - p7Off[i,j])
@@ -2896,6 +2248,7 @@ def solvePopulationIRGreenOmegaRDetuning(
                             OmegaROpt = 6,
                             Ndets = 101,
                             bw = 0.01e9*np.pi*2):
+    """Detuning line shapes at a few IR/green/Rabi power levels, offset-summed and scaled for display in one 3-panel figure."""
     
     colorsGreen = [colorDarkGreen, colorGreen, colorLightGreen]
     colorsRabi = [colorDarkBlue, colorBlue, colorLightBlue]
@@ -2924,60 +2277,24 @@ def solvePopulationIRGreenOmegaRDetuning(
         detunings = np.linspace(detuning - bw, detuning + bw, Ndets)
         p7 = np.zeros(Ndets)
         
-        popOff = nv_steady_state(
-                                        Omega = OmegaROpt*0, #rad/s
-                                        I_s = I_s,   #rad/s
-                                        I_p = I_pOpt, #W/m^2
-                                        gamma_phi = gamma_phi,   #Hz
-                                        detuning = detuning, #rad/s
-                                        zeeman   = zeeman, #rad/s
-                                        steadystatebool=True, 
-                                        gamma_eg=gamma_eg,
-                                        gamma_isc_0=gamma_isc_0,
-                                        gamma_isc_1=gamma_isc_1,
-                                        gamma_isc_g0=gamma_isc_g0,
-                                        gamma_isc_g1=gamma_isc_g1,
-                                        gamma_s=gamma_s,
-                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                        sigma_p = sigma_p, # m^%-2
-                                        sigma_s = sigma_s, # m^%-2
-                                        lamb_s = lamb_s,   # IR probe
-                                        lamb_p = lamb_p,    # green pump
-                                        c = c_const, #m/s
-                                        h = h,      # Planck constant [J·s]
-                                        paramsRates = paramsRatesOnes,
-                                        paramsRatesReal = paramsRatesReal
-                                        )
+        popOff = nv_steady_state_default(
+            Omega = OmegaROpt*0,
+            I_s = I_s,
+            I_p = I_pOpt,
+            detuning = detuning,
+            zeeman = zeeman,
+            steadystatebool=True,
+        )
         
         for i, det in enumerate(detunings):
-            pop = nv_steady_state(
-                                            Omega = OmegaROpt, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_pOpt, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = (det), #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
+            pop = nv_steady_state_default(
+                Omega = OmegaROpt,
+                I_s = I_s,
+                I_p = I_pOpt,
+                detuning = (det),
+                zeeman = zeeman,
+                steadystatebool=True,
+            )
             p7[i] = (pop[7])
         
         peaks, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), p7)
@@ -2992,10 +2309,7 @@ def solvePopulationIRGreenOmegaRDetuning(
         
         y_shift_plus  = np.roll(y, -shift_pts)
         y_shift_minus = np.roll(y,  shift_pts)
-        y_shift_pplus  = np.roll(y, -2*shift_pts)
-        y_shift_mminus = np.roll(y,  2*shift_pts)
 
-        y_total = (3*y + 2*y_shift_plus + 2*y_shift_minus + y_shift_pplus + y_shift_mminus)*100*scaleIR[j]/3*np.sqrt(I_IR[j]/(I_IR[1]))
         y_total = (y + y_shift_plus + y_shift_minus)*100*scaleIR[j]*np.sqrt(I_IR[j]/(I_IR[1]))
         # y_total = p7*100
         maxIR[1+j] = y_total.max()
@@ -3007,60 +2321,24 @@ def solvePopulationIRGreenOmegaRDetuning(
         detunings = np.linspace(detuning - bw, detuning + bw, Ndets)
         p7 = np.zeros(Ndets)
             
-        popOff = nv_steady_state(
-                                        Omega = OmegaR*0, #rad/s
-                                        I_s = I_sOpt,   #rad/s
-                                        I_p = I_pOpt, #W/m^2
-                                        gamma_phi = gamma_phi,   #Hz
-                                        detuning = detuning, #rad/s
-                                        zeeman   = zeeman, #rad/s
-                                        steadystatebool=True, 
-                                        gamma_eg=gamma_eg,
-                                        gamma_isc_0=gamma_isc_0,
-                                        gamma_isc_1=gamma_isc_1,
-                                        gamma_isc_g0=gamma_isc_g0,
-                                        gamma_isc_g1=gamma_isc_g1,
-                                        gamma_s=gamma_s,
-                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                        sigma_p = sigma_p, # m^%-2
-                                        sigma_s = sigma_s, # m^%-2
-                                        lamb_s = lamb_s,   # IR probe
-                                        lamb_p = lamb_p,    # green pump
-                                        c = c_const, #m/s
-                                        h = h,      # Planck constant [J·s]
-                                        paramsRates = paramsRatesOnes,
-                                        paramsRatesReal = paramsRatesReal
-                                        )
+        popOff = nv_steady_state_default(
+            Omega = OmegaR*0,
+            I_s = I_sOpt,
+            I_p = I_pOpt,
+            detuning = detuning,
+            zeeman = zeeman,
+            steadystatebool=True,
+        )
         
         for i, det in enumerate(detunings):
-            pop = nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = I_sOpt,   #rad/s
-                                            I_p = I_pOpt, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = (det), #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
+            pop = nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = I_sOpt,
+                I_p = I_pOpt,
+                detuning = (det),
+                zeeman = zeeman,
+                steadystatebool=True,
+            )
             p7[i] = (pop[7])
         
         peaks, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), p7)
@@ -3078,7 +2356,6 @@ def solvePopulationIRGreenOmegaRDetuning(
         y_shift_pplus  = np.roll(y, -2*shift_pts)
         y_shift_mminus = np.roll(y,  2*shift_pts)
     
-        y_total = (3*y + 2*y_shift_plus + 2*y_shift_minus + y_shift_pplus + y_shift_mminus)*100*scaleRabi[j]/3
         y_total = (y + y_shift_plus + y_shift_minus)*100*scaleRabi[j]
         if j == 1:
             print('p7 on:', p7.max())
@@ -3095,59 +2372,23 @@ def solvePopulationIRGreenOmegaRDetuning(
         detunings = np.linspace(detuning - bw, detuning + bw, Ndets)
         p7 = np.zeros(Ndets)
             
-        popOff = nv_steady_state(
-                                        Omega = OmegaROpt*0, #rad/s
-                                        I_s = I_sOpt,   #rad/s
-                                        I_p = I_p, #W/m^2
-                                        gamma_phi = gamma_phi,   #Hz
-                                        detuning = detuning, #rad/s
-                                        zeeman   = zeeman, #rad/s
-                                        steadystatebool=True, 
-                                        gamma_eg=gamma_eg,
-                                        gamma_isc_0=gamma_isc_0,
-                                        gamma_isc_1=gamma_isc_1,
-                                        gamma_isc_g0=gamma_isc_g0,
-                                        gamma_isc_g1=gamma_isc_g1,
-                                        gamma_s=gamma_s,
-                                        gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                        gamma_NV0_em = gamma_NV0_em, #k_75
-                                        gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                        sigma_p = sigma_p, # m^%-2
-                                        sigma_s = sigma_s, # m^%-2
-                                        lamb_s = lamb_s,   # IR probe
-                                        lamb_p = lamb_p,    # green pump
-                                        c = c_const, #m/s
-                                        h = h,      # Planck constant [J·s]
-                                        paramsRates = paramsRatesOnes,
-                                        paramsRatesReal = paramsRatesReal
-                                        )
+        popOff = nv_steady_state_default(
+            Omega = OmegaROpt*0,
+            I_s = I_sOpt,
+            I_p = I_p,
+            detuning = detuning,
+            zeeman = zeeman,
+            steadystatebool=True,
+        )
         for i, det in enumerate(detunings):
-            pop = nv_steady_state(
-                                            Omega = OmegaROpt, #rad/s
-                                            I_s = I_sOpt,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = (det), #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
+            pop = nv_steady_state_default(
+                Omega = OmegaROpt,
+                I_s = I_sOpt,
+                I_p = I_p,
+                detuning = (det),
+                zeeman = zeeman,
+                steadystatebool=True,
+            )
             p7[i] = (pop[7])
         
         peaks, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), p7)
@@ -3164,7 +2405,6 @@ def solvePopulationIRGreenOmegaRDetuning(
         y_shift_pplus  = np.roll(y, -2*shift_pts)
         y_shift_mminus = np.roll(y,  2*shift_pts)
     
-        y_total = (3*y + 2*y_shift_plus + 2*y_shift_minus + y_shift_pplus + y_shift_mminus)*100*scaleGreen[j]/3
         y_total = (y + y_shift_plus + y_shift_minus)*100*scaleGreen[j]
         
         maxGreen[1+j] = y_total.max()
@@ -3222,6 +2462,7 @@ def solvePopulationIRGreenOmegaRDetuning(
 
 
 def solvePopulationLineplots(saveBool = False):
+    """Plot measured + fitted NV0/NV- PL vs IR power alongside a global least-squares fit of the shared rate parameters."""
     # IR Power Sweep dark state paper all populations
     
     fig, ax = plot_custom(
@@ -3234,7 +2475,7 @@ def solvePopulationLineplots(saveBool = False):
         widthBool =False
     )
     
-    ms = 1
+    ms = 1  # local override of nvConstants.ms/lw for this figure's marker/line size
     lw = 1
     cmap = plt.cm.Greens
     colors = cmap(np.linspace(0.3, 1, 3))   # avoid very light end
@@ -3301,7 +2542,7 @@ def solvePopulationLineplots(saveBool = False):
     ]
     
     # Model IR grid (fixed)
-    I_green = 1e-3/(0.3e-6**2*np.pi)
+    I_green = 1e-3/(0.3e-6**2*np.pi)  # 1 mW over a beam of radius 0.3 um -> W/m^2
     I_pump  = I_green*np.array([0.4, 1.3, 4.6])
     N_IR = 100 
     I_IR_model = np.logspace(6,14, N_IR) #W/cm^2 * cm^2/m^2
@@ -3374,32 +2615,14 @@ def solvePopulationLineplots(saveBool = False):
         OmegaR = 0 
         for j, I_p in enumerate(I_pump):
             for i, I_s in enumerate(I_IR_model):
-                result =  nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s],
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal,
-                                            verboseResults = True
-                                            )
+                result =  nv_steady_state_default(
+                    Omega = OmegaR,
+                    I_s = I_s,
+                    I_p = I_p,
+                    detuning = detuning,
+                    zeeman = zeeman,
+                    verboseResults = True,
+                )
                 p[i,:] = result
             # print(paramsRatesReal)
             ax[1].plot(I_IR_model, (p[:,3] + p[:,4] + p[:,5])/np.max(p[0,3] + p[0,4] + p[0,5]), color = 'k', lw = lw/2)
@@ -3466,8 +2689,9 @@ def solvePopulationLineplots(saveBool = False):
     plt.show()
     
 def solvePopulationSteadyStateContrast(saveBool = False, bool1042 = False):
+    """Plot steady-state on/off contrast vs IR and green intensity (paper figure)."""
     # IR Power Sweep dark state paper all populations
-    lw = 1
+    lw = 1  # local override of nvConstants.lw for this figure's line width
     fig, ax = plot_custom(
         PRQuantumWidthHalf, PRQuantumWidthHalf, 
         [r"532 nm intensity, $I_p$ (W/m$^2$)", r"1042 nm intensity, $I_s$ (W/m$^2$)"],
@@ -3483,7 +2707,6 @@ def solvePopulationSteadyStateContrast(saveBool = False, bool1042 = False):
         axx.set_yscale('log');
     N_IR = 100
     NV0power1 = np.logspace(7, 12, N_IR)
-    I_pp = np.array([1e-2])/(0.3e-6**2*np.pi)*1e-1
     I_pp = np.array([I_pOpt])
     I_IR = np.logspace(np.log10(np.min(NV0power1)), np.log10(np.max(NV0power1)), N_IR) #W/cm^2 * cm^2/m^2
     OmegaR = OmegaROptRadps
@@ -3492,31 +2715,13 @@ def solvePopulationSteadyStateContrast(saveBool = False, bool1042 = False):
     # detuning = 0
     for I_p in I_pp:
         for i, I_s in enumerate(I_IR):
-            result =  nv_steady_state(
-                    Omega = OmegaR,
-                    I_s = I_s,
-                    I_p = I_p,
-                    gamma_phi = gamma_phi,
-                    detuning = detuning,
-                    zeeman   = zeeman,
-                    gamma_eg=gamma_eg,
-                    gamma_isc_0=gamma_isc_0,
-                    gamma_isc_1=gamma_isc_1,
-                    gamma_isc_g0=gamma_isc_g0,
-                    gamma_isc_g1=gamma_isc_g1,
-                    gamma_s=gamma_s,
-                    gamma_NV0_eg = gamma_NV0_eg,
-                    gamma_NV0_em = gamma_NV0_em,
-                    gamma_NV0_mg = gamma_NV0_mg,
-                    sigma_p = sigma_p,
-                    sigma_s = sigma_s,
-                    lamb_s = lamb_s,
-                    lamb_p = lamb_p,
-                    c = c_const,
-                    h = h,
-                    paramsRates = paramsRatesOnes,
-                    paramsRatesReal = paramsRatesReal,
-                )
+            result =  nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
             resultOff =  nv_steady_state_fast(
                     Omega = OmegaR*0,
                     I_s = I_s,
@@ -3569,56 +2774,20 @@ def solvePopulationSteadyStateContrast(saveBool = False, bool1042 = False):
     # detuning = 0
     
     for i, I_p in enumerate(I_g):
-        result =  nv_steady_state(
-                Omega = OmegaR,
-                I_s = I_s,
-                I_p = I_p,
-                gamma_phi = gamma_phi,
-                detuning = detuning,
-                zeeman   = zeeman,
-                gamma_eg=gamma_eg,
-                gamma_isc_0=gamma_isc_0,
-                gamma_isc_1=gamma_isc_1,
-                gamma_isc_g0=gamma_isc_g0,
-                gamma_isc_g1=gamma_isc_g1,
-                gamma_s=gamma_s,
-                gamma_NV0_eg = gamma_NV0_eg,
-                gamma_NV0_em = gamma_NV0_em,
-                gamma_NV0_mg = gamma_NV0_mg,
-                sigma_p = sigma_p,
-                sigma_s = sigma_s,
-                lamb_s = lamb_s,
-                lamb_p = lamb_p,
-                c = c_const,
-                h = h,
-                paramsRates = paramsRatesOnes,
-                paramsRatesReal = paramsRatesReal,
-            )            
-        resultOff =  nv_steady_state(
-                                Omega = OmegaR*0,
-                                I_s = I_s,
-                                I_p = I_p,
-                                gamma_phi = gamma_phi,
-                                detuning = detuning,
-                                zeeman   = zeeman,
-                                gamma_eg=gamma_eg,
-                                gamma_isc_0=gamma_isc_0,
-                                gamma_isc_1=gamma_isc_1,
-                                gamma_isc_g0=gamma_isc_g0,
-                                gamma_isc_g1=gamma_isc_g1,
-                                gamma_s=gamma_s,
-                                gamma_NV0_eg = gamma_NV0_eg,
-                                gamma_NV0_em = gamma_NV0_em,
-                                gamma_NV0_mg = gamma_NV0_mg,
-                                sigma_p = sigma_p,
-                                sigma_s = sigma_s,
-                                lamb_s = lamb_s,
-                                lamb_p = lamb_p,
-                                c = c_const,
-                                h = h,
-                                paramsRates = paramsRatesOnes,
-                                paramsRatesReal = paramsRatesReal
-                            )
+        result =  nv_steady_state_default(
+            Omega = OmegaR,
+            I_s = I_s,
+            I_p = I_p,
+            detuning = detuning,
+            zeeman = zeeman,
+        )            
+        resultOff =  nv_steady_state_default(
+            Omega = OmegaR*0,
+            I_s = I_s,
+            I_p = I_p,
+            detuning = detuning,
+            zeeman = zeeman,
+        )
         p[i,:] = result
         pOff[i,:] = resultOff
     C = np.abs(p-pOff)
@@ -3673,8 +2842,9 @@ def solvePopulationSteadyStateContrast(saveBool = False, bool1042 = False):
     
     
 def solvePopulationSteadyStateOmegaR(saveBool = False, bool1042 = False):
+    """Plot steady-state on/off contrast vs Rabi frequency OmegaR."""
     # IR Power Sweep dark state paper all populations
-    lw = 1
+    lw = 1  # local override of nvConstants.lw for this figure's line width
     fig, ax = plot_custom(
         PRQuantumWidthHalf, PRQuantumWidthHalf, 
         r"$\Omega_R$ ",
@@ -3697,31 +2867,13 @@ def solvePopulationSteadyStateOmegaR(saveBool = False, bool1042 = False):
     # detuning = 0
     for I_p in I_pp:
         for i, OmegaR in enumerate(OmegaRm):
-            result =  nv_steady_state(
-                    Omega = OmegaR,
-                    I_s = I_s,
-                    I_p = I_p,
-                    gamma_phi = gamma_phi,
-                    detuning = detuning,
-                    zeeman   = zeeman,
-                    gamma_eg=gamma_eg,
-                    gamma_isc_0=gamma_isc_0,
-                    gamma_isc_1=gamma_isc_1,
-                    gamma_isc_g0=gamma_isc_g0,
-                    gamma_isc_g1=gamma_isc_g1,
-                    gamma_s=gamma_s,
-                    gamma_NV0_eg = gamma_NV0_eg,
-                    gamma_NV0_em = gamma_NV0_em,
-                    gamma_NV0_mg = gamma_NV0_mg,
-                    sigma_p = sigma_p,
-                    sigma_s = sigma_s,
-                    lamb_s = lamb_s,
-                    lamb_p = lamb_p,
-                    c = c_const,
-                    h = h,
-                    paramsRates = paramsRatesOnes,
-                    paramsRatesReal = paramsRatesReal,
-                )
+            result =  nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
             resultOff =  nv_steady_state_fast(
                     Omega = 1e-10,
                     I_s = I_s,
@@ -3808,6 +2960,7 @@ def solveSensitivityVaryIRPower(saveBool = False,
                             Npoints = 100,
                             A = 10e-6**2,
                             Larr = [1e-5,1e-3, 125e-3]):
+    """Sweep IR probe power (for several absorption path lengths L) and plot the resulting shot-noise-limited sensitivity."""
     
     
     fig, ax = plot_custom(
@@ -3834,93 +2987,36 @@ def solveSensitivityVaryIRPower(saveBool = False,
         nu = np.zeros([N_IR])
         detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
         for i, I_s in enumerate(I_IR):
-            popOn =         nv_steady_state(
-                                            Omega = OmegaR, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            # steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
-            popOff = nv_steady_state(
-                                            Omega = OmegaR*0, #rad/s
-                                            I_s = I_s,   #rad/s
-                                            I_p = I_p, #W/m^2
-                                            gamma_phi = gamma_phi,   #Hz
-                                            detuning = detuning, #rad/s
-                                            zeeman   = zeeman, #rad/s
-                                            # steadystatebool=True, 
-                                            gamma_eg=gamma_eg,
-                                            gamma_isc_0=gamma_isc_0,
-                                            gamma_isc_1=gamma_isc_1,
-                                            gamma_isc_g0=gamma_isc_g0,
-                                            gamma_isc_g1=gamma_isc_g1,
-                                            gamma_s=gamma_s,
-                                            gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                            gamma_NV0_em = gamma_NV0_em, #k_75
-                                            gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                            sigma_p = sigma_p, # m^%-2
-                                            sigma_s = sigma_s, # m^%-2
-                                            lamb_s = lamb_s,   # IR probe
-                                            lamb_p = lamb_p,    # green pump
-                                            c = c_const, #m/s
-                                            h = h,      # Planck constant [J·s]
-                                            paramsRates = paramsRatesOnes,
-                                            paramsRatesReal = paramsRatesReal
-                                            )
+            popOn =         nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
+            popOff = nv_steady_state_default(
+                Omega = OmegaR*0,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+            )
                 
             R_on[i] = (popOn[7])
             R_off[i] = (popOff[7])
             C[i] = -(R_off[i]-R_on[i])/(R_off[i]+R_on[i])*2
     
-            while True:
+            for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
                 detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
                 Cdet = np.zeros(Npoints)
                 for k, det in enumerate(detunings):
-                    popDet =    nv_steady_state(
-                                                    Omega = OmegaR, #rad/s
-                                                    I_s = I_s,   #rad/s
-                                                    I_p = I_p, #W/m^2
-                                                    gamma_phi = gamma_phi,   #Hz
-                                                    detuning = det, #rad/s
-                                                    zeeman   = zeeman, #rad/s
-                                                    # steadystatebool=True, 
-                                                    gamma_eg=gamma_eg,
-                                                    gamma_isc_0=gamma_isc_0,
-                                                    gamma_isc_1=gamma_isc_1,
-                                                    gamma_isc_g0=gamma_isc_g0,
-                                                    gamma_isc_g1=gamma_isc_g1,
-                                                    gamma_s=gamma_s,
-                                                    gamma_NV0_eg = gamma_NV0_eg,  #k^0_f
-                                                    gamma_NV0_em = gamma_NV0_em, #k_75
-                                                    gamma_NV0_mg = gamma_NV0_mg,   #k_56
-                                                    sigma_p = sigma_p, # m^%-2
-                                                    sigma_s = sigma_s, # m^%-2
-                                                    lamb_s = lamb_s,   # IR probe
-                                                    lamb_p = lamb_p,    # green pump
-                                                    c = c_const, #m/s
-                                                    h = h,      # Planck constant [J·s]
-                                                    paramsRates = paramsRatesOnes,
-                                                    paramsRatesReal = paramsRatesReal
-                                                    )
+                    popDet =    nv_steady_state_default(
+                        Omega = OmegaR,
+                        I_s = I_s,
+                        I_p = I_p,
+                        detuning = det,
+                        zeeman = zeeman,
+                    )
                     Cdet[k] = -(R_off[i] - (popDet[7]))/R_off[i]
                     
                 
@@ -3991,6 +3087,7 @@ def solveSensitivityVaryIRPower(saveBool = False,
     
     
 def solvePopulationSteadyState(saveBool = False, bool1042 = False):
+    """Plot steady-state level populations vs IR intensity and vs green intensity."""
     # IR Power Sweep dark state paper all populations
     
     fig, ax = plot_custom(
@@ -4008,7 +3105,6 @@ def solvePopulationSteadyState(saveBool = False, bool1042 = False):
         # axx.set_yscale('log');
     N_IR = 100
     NV0power1 = np.logspace(6, 12, N_IR)
-    I_pp = np.array([1e-2])/(0.3e-6**2*np.pi)*1e-1
     I_pp = [2.101e8]
     I_IR = np.logspace(np.log10(np.min(NV0power1)), np.log10(np.max(NV0power1)), N_IR) #W/cm^2 * cm^2/m^2
     OmegaR = 1e0*2*np.pi
@@ -4016,32 +3112,14 @@ def solvePopulationSteadyState(saveBool = False, bool1042 = False):
     # detuning = 0
     for I_p in I_pp:
         for i, I_s in enumerate(I_IR):
-            result =  nv_steady_state(
-                    Omega = OmegaR,
-                    I_s = I_s,
-                    I_p = I_p,
-                    gamma_phi = gamma_phi,
-                    detuning = detuning,
-                    zeeman   = zeeman,
-                    gamma_eg=gamma_eg,
-                    gamma_isc_0=gamma_isc_0,
-                    gamma_isc_1=gamma_isc_1,
-                    gamma_isc_g0=gamma_isc_g0,
-                    gamma_isc_g1=gamma_isc_g1,
-                    gamma_s=gamma_s,
-                    gamma_NV0_eg = gamma_NV0_eg,
-                    gamma_NV0_em = gamma_NV0_em,
-                    gamma_NV0_mg = gamma_NV0_mg,
-                    sigma_p = sigma_p,
-                    sigma_s = sigma_s,
-                    lamb_s = lamb_s,
-                    lamb_p = lamb_p,
-                    c = c_const,
-                    h = h,
-                    paramsRates = paramsRatesOnes,
-                    paramsRatesReal = paramsRatesReal,
-                    bool1042 = bool1042
-                )
+            result =  nv_steady_state_default(
+                Omega = OmegaR,
+                I_s = I_s,
+                I_p = I_p,
+                detuning = detuning,
+                zeeman = zeeman,
+                bool1042 = bool1042,
+            )
             p[i,:] = result
         labels = [r'$|0\rangle$',r'$|1\rangle$',r'$|2\rangle$',r'$|3\rangle$',r'$|4\rangle$',r'$|5\rangle$',
                   r'$|6\rangle$',r'$|7\rangle$',r'$|8\rangle$',r'$|9\rangle$',r'$|10\rangle$']
@@ -4067,31 +3145,13 @@ def solvePopulationSteadyState(saveBool = False, bool1042 = False):
     # detuning = 0
     
     for i, I_p in enumerate(I_g):
-        result =  nv_steady_state(
-                Omega = OmegaR,
-                I_s = I_s,
-                I_p = I_p,
-                gamma_phi = gamma_phi,
-                detuning = detuning,
-                zeeman   = zeeman,
-                gamma_eg=gamma_eg,
-                gamma_isc_0=gamma_isc_0,
-                gamma_isc_1=gamma_isc_1,
-                gamma_isc_g0=gamma_isc_g0,
-                gamma_isc_g1=gamma_isc_g1,
-                gamma_s=gamma_s,
-                gamma_NV0_eg = gamma_NV0_eg,
-                gamma_NV0_em = gamma_NV0_em,
-                gamma_NV0_mg = gamma_NV0_mg,
-                sigma_p = sigma_p,
-                sigma_s = sigma_s,
-                lamb_s = lamb_s,
-                lamb_p = lamb_p,
-                c = c_const,
-                h = h,
-                paramsRates = paramsRatesOnes,
-                paramsRatesReal = paramsRatesReal,
-            )
+        result =  nv_steady_state_default(
+            Omega = OmegaR,
+            I_s = I_s,
+            I_p = I_p,
+            detuning = detuning,
+            zeeman = zeeman,
+        )
         p[i,:] = result
     labels = [r'$|0\rangle$',r'$|1\rangle$',r'$|2\rangle$',r'$|3\rangle$',r'$|4\rangle$',r'$|5\rangle$',
               r'$|6\rangle$',r'$|7\rangle$',r'$|8\rangle$',r'$|9\rangle$',r'$|10\rangle$']
@@ -4117,6 +3177,7 @@ def solvePopulationSteadyState(saveBool = False, bool1042 = False):
     plt.show()
     
 def performOptimization():
+    """Run an Optuna study minimizing objective (IR-absorption sensitivity) and print the best I_p/I_s/OmegaR found."""
     # --- Create study ---
     start_time = time.time()
     study = optuna.create_study(
@@ -4158,6 +3219,7 @@ def performOptimization():
     )
 
 def performNVPLVisOptimization():
+    """Run an Optuna study minimizing objectiveVis (green/NV0-PL sensitivity) and print the best I_p/OmegaR found."""
     # --- Create study ---
     start_time = time.time()
     study = optuna.create_study(
