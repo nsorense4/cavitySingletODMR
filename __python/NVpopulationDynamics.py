@@ -16,6 +16,7 @@ import optuna
 import time
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext
 from scipy.optimize import least_squares
 from scipy.interpolate import interp1d
 from matplotlib.colors import Normalize
@@ -248,21 +249,51 @@ def solveSensitivity(saveBool = False,
     return C, nu, mOnArr, mOffArr, I_IR, I_green, OmegaRArr
     
     
-def solveSensitivityVisSingle(OmegaR = gamma_phi,          
+def _solveSensitivityVisSingle_worker(det, OmegaR, I_p, ROff):
+    """Compute (Cdet[k], ROn[k]) for one detuning point of solveSensitivityVisSingle's inner scan."""
+    popDet = nv_steady_state_default(
+        Omega=OmegaR,
+        I_s=0,
+        I_p=I_p,
+        detuning=det,
+        zeeman=zeeman,
+    )
+    ROn_k = (popDet[3] + popDet[4] + popDet[5])*gamma_eg
+    Cdet_k = (ROff - ROn_k)/ROff
+    return Cdet_k, ROn_k
+
+
+def solveSensitivityVisSingle(OmegaR = gamma_phi,
                             I_p = 1e7,
                             bw = 0.04e9*2*np.pi,
                             Npoints = 101,
                             lamb = 532e-9,
                             bool1042 = True,
-                            returnAllParams = False):
-    """Sensitivity at one (OmegaR, I_p) point using the green(NV0)-PL contrast, via an adaptive detuning-bandwidth fit."""
-    
+                            returnAllParams = False,
+                            parallelBool = False,
+                            maxWorkers = None):
+    """Sensitivity at one (OmegaR, I_p) point using the green(NV0)-PL contrast, via an adaptive detuning-bandwidth fit.
+
+    The inner detuning scan (Npoints points, repeated up to
+    MAX_BISECTION_ITERS times until it converges) is independent per point
+    and can be dispatched across a ProcessPoolExecutor via parallelBool=True
+    (pool created once per call, reused across bisection attempts within
+    that call) -- but default OFF: measured slower than serial at the
+    default Npoints=101 (a single solve here is ~12ms; per-call pool
+    startup, which re-imports qutip/numba in each worker, costs more than
+    that saves). A threaded version was also tested and gave no speedup
+    either -- the solve holds the GIL throughout. Only worth enabling if
+    Npoints is increased substantially, or if you switch to a persistent
+    pool shared across many calls (e.g. across an optimization run) rather
+    than one created fresh per call.
+    """
+
     detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
-    
+
     delpop = np.zeros(Npoints)
     mOn = np.zeros(Npoints)
-    
-    
+
+
     popOff = nv_steady_state_default(
         Omega = OmegaR*0,
         I_s = 0,
@@ -271,46 +302,43 @@ def solveSensitivityVisSingle(OmegaR = gamma_phi,
         zeeman = zeeman,
     )
     ROff = (popOff[3] + popOff[4] + popOff[5])*gamma_eg
-    
-    for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
-        detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
-        Cdet = np.zeros(Npoints)
-        ROn = np.zeros(Npoints)
-        for k, det in enumerate((detunings)):
-            popDet =    nv_steady_state_default(
-                Omega = OmegaR,
-                I_s = 0,
-                I_p = I_p,
-                detuning = det,
-                zeeman = zeeman,
-            )
-            # Cdet[k] = popDet[7] - p7Off
-            ROn[k] = (popDet[3] + popDet[4] + popDet[5])*gamma_eg
-            Cdet[k] =  (ROff - ROn[k])/ROff
-            
-        
-        peaks, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), Cdet)
-        # plt.plot(detunings/1e9/(2*np.pi),Cdet)
-        # print('FWHM ', FWHM, ' bw ', bw/1e9/(2*np.pi))
-        # plt.show()
-        if np.size(FWHM) < 1:
-            print('FWHM fitting didnt work')
-        # elif (np.max(Cdet) - np.min(Cdet))/np.max(Cdet) < 0.01:
-        #     bw = bw*2
-        #     continue
-        elif FWHM < bw/1e9/(2*np.pi) and FWHM > bw/6/1e9/(2*np.pi):
-            nu = FWHM[0]*1e6
-            C = np.max(Cdet)
-            break
-        elif FWHM >= bw/3/1e9/2/np.pi:
-            bw = bw*2
-            continue
-        else:
-            bw = bw/1.6
-            continue
-        
+
+    executor_cm = ProcessPoolExecutor(max_workers=maxWorkers) if parallelBool else nullcontext()
+    with executor_cm as executor:
+        for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
+            detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
+            Cdet = np.zeros(Npoints)
+            ROn = np.zeros(Npoints)
+            if parallelBool:
+                futures = [executor.submit(_solveSensitivityVisSingle_worker, det, OmegaR, I_p, ROff) for det in detunings]
+                for k, future in enumerate(futures):
+                    Cdet[k], ROn[k] = future.result()
+            else:
+                for k, det in enumerate(detunings):
+                    Cdet[k], ROn[k] = _solveSensitivityVisSingle_worker(det, OmegaR, I_p, ROff)
+
+            peaks, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), Cdet)
+            # plt.plot(detunings/1e9/(2*np.pi),Cdet)
+            # print('FWHM ', FWHM, ' bw ', bw/1e9/(2*np.pi))
+            # plt.show()
+            if np.size(FWHM) < 1:
+                print('FWHM fitting didnt work')
+            # elif (np.max(Cdet) - np.min(Cdet))/np.max(Cdet) < 0.01:
+            #     bw = bw*2
+            #     continue
+            elif FWHM < bw/1e9/(2*np.pi) and FWHM > bw/6/1e9/(2*np.pi):
+                nu = FWHM[0]*1e6
+                C = np.max(Cdet)
+                break
+            elif FWHM >= bw/3/1e9/2/np.pi:
+                bw = bw*2
+                continue
+            else:
+                bw = bw/1.6
+                continue
+
     maxSignal, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), mOn)
-    
+
     # print(C/nu)
     sens = calcSensitivityCW_countrate(nu*1e3, C, ROn.max())
     if returnAllParams:
@@ -318,21 +346,49 @@ def solveSensitivityVisSingle(OmegaR = gamma_phi,
     else:
         return sens
 
-def solveSensitivitySingle(OmegaR = gamma_phi,          
+def _solveSensitivitySingle_worker(det, OmegaR, I_s, I_p, p7Off):
+    """Compute Cdet[k] for one detuning point of solveSensitivitySingle's inner scan."""
+    popDet = nv_steady_state_default(
+        Omega=OmegaR,
+        I_s=I_s,
+        I_p=I_p,
+        detuning=det,
+        zeeman=zeeman,
+    )
+    return popDet[7] - p7Off
+
+
+def solveSensitivitySingle(OmegaR = gamma_phi,
                             I_p = 1e7,
                             I_s = 1e12,
                             bw = 0.04e9*2*np.pi,
                             Npoints = 101,
                             lamb = 1042e-9,
-                            bool1042 = True):
-    """Sensitivity at one (OmegaR, I_s, I_p) point using the IR-absorption contrast, via an adaptive detuning-bandwidth fit."""
-    
+                            bool1042 = True,
+                            parallelBool = False,
+                            maxWorkers = None):
+    """Sensitivity at one (OmegaR, I_s, I_p) point using the IR-absorption contrast, via an adaptive detuning-bandwidth fit.
+
+    The inner detuning scan (Npoints points, repeated up to
+    MAX_BISECTION_ITERS times until it converges) is independent per point
+    and can be dispatched across a ProcessPoolExecutor via parallelBool=True
+    (pool created once per call, reused across bisection attempts within
+    that call) -- but default OFF: measured slower than serial at the
+    default Npoints=101 (a single solve here is ~12ms; per-call pool
+    startup, which re-imports qutip/numba in each worker, costs more than
+    that saves). A threaded version was also tested and gave no speedup
+    either -- the solve holds the GIL throughout. Only worth enabling if
+    Npoints is increased substantially, or if you switch to a persistent
+    pool shared across many calls (e.g. across an optimization run) rather
+    than one created fresh per call.
+    """
+
     detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
-    
+
     delpop = np.zeros(Npoints)
     mOn = np.zeros(Npoints)
-    
-    
+
+
     popOff = nv_steady_state_default(
         Omega = OmegaR*0,
         I_s = I_s,
@@ -341,55 +397,53 @@ def solveSensitivitySingle(OmegaR = gamma_phi,
         zeeman = zeeman,
     )
     p7Off = popOff[7]
-    # p7Off = popOff[3] + popOff[4] + popOff[5]  
-    
-    for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
-        detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
-        Cdet = np.zeros(Npoints)
-        for k, det in enumerate((detunings)):
-            popDet =    nv_steady_state_default(
-                Omega = OmegaR,
-                I_s = I_s,
-                I_p = I_p,
-                detuning = det,
-                zeeman = zeeman,
-            )
-            Cdet[k] = popDet[7] - p7Off
-            # Cdet[k] = -(popDet[3] + popDet[4] + popDet[5]) + p7Off
-            
-        
-        peaks, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), Cdet)
-        plt.plot(detunings/1e9/(2*np.pi),Cdet)
-        # print('FWHM ', FWHM, ' bw ', bw/1e9/(2*np.pi))
-        plt.show()
-        if np.size(FWHM) < 1:
-            print('FWHM fitting didnt work')
-        # elif (np.max(Cdet) - np.min(Cdet))/np.max(Cdet) < 0.01:
-        #     bw = bw*2
-        #     continue
-        elif FWHM < bw/1e9/(2*np.pi) and FWHM > bw/6/1e9/(2*np.pi):
-            nu = FWHM[0]*1e6
-            C = np.max(Cdet)
-            break
-        elif FWHM >= bw/3/1e9/2/np.pi:
-            bw = bw*2
-            continue
-        else:
-            bw = bw/1.6
-            continue
-        
-        # delpop[k] = np.sum(popOn*kappaOn - popOff*kappaOff)
-        # mOn[k] = np.sum(popOn*kappaOn)
-        # mOff[k] = np.sum(popOff*kappaOff)
+    # p7Off = popOff[3] + popOff[4] + popOff[5]
+
+    executor_cm = ProcessPoolExecutor(max_workers=maxWorkers) if parallelBool else nullcontext()
+    with executor_cm as executor:
+        for _bisection_attempt in range(MAX_BISECTION_ITERS):  # bounded bisection search (was 'while True:')
+            detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
+            Cdet = np.zeros(Npoints)
+            if parallelBool:
+                futures = [executor.submit(_solveSensitivitySingle_worker, det, OmegaR, I_s, I_p, p7Off) for det in detunings]
+                for k, future in enumerate(futures):
+                    Cdet[k] = future.result()
+            else:
+                for k, det in enumerate(detunings):
+                    Cdet[k] = _solveSensitivitySingle_worker(det, OmegaR, I_s, I_p, p7Off)
+
+            peaks, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), Cdet)
+            plt.plot(detunings/1e9/(2*np.pi),Cdet)
+            # print('FWHM ', FWHM, ' bw ', bw/1e9/(2*np.pi))
+            plt.show()
+            if np.size(FWHM) < 1:
+                print('FWHM fitting didnt work')
+            # elif (np.max(Cdet) - np.min(Cdet))/np.max(Cdet) < 0.01:
+            #     bw = bw*2
+            #     continue
+            elif FWHM < bw/1e9/(2*np.pi) and FWHM > bw/6/1e9/(2*np.pi):
+                nu = FWHM[0]*1e6
+                C = np.max(Cdet)
+                break
+            elif FWHM >= bw/3/1e9/2/np.pi:
+                bw = bw*2
+                continue
+            else:
+                bw = bw/1.6
+                continue
+
+            # delpop[k] = np.sum(popOn*kappaOn - popOff*kappaOff)
+            # mOn[k] = np.sum(popOn*kappaOn)
+            # mOff[k] = np.sum(popOff*kappaOff)
     # C = np.max(delpop)
     maxSignal, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), mOn)
     # nu = FWHM[0]
     # mOn = maxSignal
     # mOff = np.max(mOff)
-    
+
     print(C/nu)
     sens = calcSensitivityCW(nu, C, I_s, lamb)
-    
+
     return sens
 
 # def objective(x):
@@ -993,7 +1047,7 @@ def solvePopulationIR(saveBool = False,
         ax.set_xlabel(r"$I_{\text{S}}$ (kW/cm$^2$)", fontsize = labelfontsize)
         ax.set_ylabel(r'signal', fontsize = labelfontsize)
             
-        # ax.plot(I_IR, C*np.sqrt(power)/nu)
+        ax.plot(I_IR, C*np.sqrt(power)/nu)
         plt.tight_layout()
         
         plt.show()
@@ -3290,7 +3344,6 @@ if __name__ == "__main__":
     # solvePopulationSteadyStateContrast(saveBool = saveBool, bool1042 = False)
     # solvePopulationDetuningHyperfineLineplot(saveBool)
     # solveNVPL_GreenOmegaR()
-
     
     # solvePopulationDetuningLineplot(saveBool = False, 
     #                                 OmegaR = OmegaROptRadps,          
@@ -3300,18 +3353,18 @@ if __name__ == "__main__":
     #                                 Npoints = 201,
     #                                 fastBool = False)
     
-    solvePopulationDetuningLineplotPL(saveBool = False, 
-                                    OmegaR = OmegaROptRadps_vis,          
-                                    I_p = I_pOpt_vis,
-                                    I_s = 0,
-                                    bw = 0.01e9*2*np.pi,
-                                    Npoints = 201,
-                                    fastBool = False)
+    # solvePopulationDetuningLineplotPL(saveBool = False, 
+    #                                 OmegaR = OmegaROptRadps_vis,          
+    #                                 I_p = I_pOpt_vis,
+    #                                 I_s = 0,
+    #                                 bw = 0.01e9*2*np.pi,
+    #                                 Npoints = 201,
+    #                                 fastBool = False)
     
     
     
     # solveSensitivityVaryIRPower(saveBool = saveBool)
-    # performOptimization()
+    performOptimization()
     # performNVPLVisOptimization()
     
 
