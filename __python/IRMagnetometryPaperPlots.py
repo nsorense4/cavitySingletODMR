@@ -4,9 +4,6 @@ Created on Wed Feb 18 15:51:41 2026
 
 @author: nicho
 """
-import sys
-sys.path.append('C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/customPyDrivers')
-
 import matplotlib.colors as pltcolors
 from scipy.ndimage import gaussian_filter1d
 import numpy as np
@@ -14,13 +11,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.io import loadmat
 import matplotlib.colors as mcolors
-import matplotlib.cm as cm
-# import seaborn as sns
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 import warnings
-from scipy.signal import butter, filtfilt
-import re
 import pandas as pd
 import os
 import matplotlib.colors as colors
@@ -39,16 +32,11 @@ from linbladMESolverFunctionChargeConversionLiouvillian import nv_steady_state#,
 from commonlabcode.plot_custom import plot_custom, thesisColorPalette, plotPalette, makeTopLeftSpinesInvisible
 from scipy.io import loadmat
 from tqdm import tqdm
-import optuna
-import time
-import multiprocessing as mp
 from scipy.optimize import least_squares
 from scipy.interpolate import interp1d
-from matplotlib.ticker import FormatStrFormatter
 from NVpopulationDynamics import *
 from allantools import oadev 
 
-import glob
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _FIGURES_DIR = os.path.join(_THIS_DIR, "..", "__figures")
@@ -86,44 +74,9 @@ alpha1 = alpha0 + (alphaBulk1 - alphaBulk0)/12
         
 alpha = alpha0/2 + alpha1/2
 
-# alpha0 = 4.599 #(per m)
-# alpha1 = alpha0 + 0.359
-        
-# alpha = alpha0/2 + alpha1/2
-
 OmegaROpt_vis  =  OmegaROptRadps# 3.018e+06
     
 I_sat = hbar*omegas/sigma_s*gamma_s*2
-
-nuOpt = 1840020
-A = 0.1e-3**2
-
-paramsRatesReal = np.array([2.97702015e+07, 1.80180000e+07, 5.65801443e+04 ,3.79558334e+06,
- 3.69347363e+03, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00,
- 3.68409690e-01, 1.90125394e+02, 0.00000000e+00, 0.00000000e+00,
- 0.00000000e+00, 0.00000000e+00, 3.02741247e+02, 0.00000000e+00,
- 0.00000000e+00, 0.00000000e+00, 2.12417732e+03, 1.35680211e+05,
- 6.85335419e+02 ,3.96197208e+01])
-
-paramsRatesSimple = np.array([2.97702015e+07, 1.80180000e+07, 5.65801443e+04 ,3.79558334e+06,
- 3.69347363e+03, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00,
- 0, 0, 0.00000000e+00, 0.00000000e+00,
- 0.00000000e+00, 0.00000000e+00, 0, 0.00000000e+00,
- 0.00000000e+00, 0.00000000e+00, 2.12417732e+03, 1.35680211e+05,
- 6.85335419e+02 ,0])
-
-paramsRatesOnes = np.ones(22)
-
-colorBlue = '#190cffff'
-colorDarkBlue = '#0900a2ff'
-colorLightBlue = '#3e9effff'
-
-colorRed = '#fe0000ff'
-colorDarkRed = '#800000ff'
-colorLightRed = '#ff8484ff'
-
-colorGreen = '#07b700ff'
-colorDarkGreen = '#058000ff'
 
 
 default_params = dict(
@@ -766,9 +719,51 @@ def calcBulkSensitivity(L, A = 1):
     P = I_sOpt*A
     return calcSensitivityCW(nuOpt, C, P*T, lamb_s)
 
+def calcMicrodiskSensitivity(kex, ki0, ki1, L, A = 1):    
+    T0 = calcTransmissionSinglet(kex, ki0, 0, 1)
+    T1 = calcTransmissionSinglet(kex, ki1, 0, 1)
+    T = T0/2 + T1/2
+    C = np.abs(T0-T1)/T
+    Pdet = T*(I_sOpt*A*L*nd*(kex + (ki0 + ki1)/2)**2/(2*c_const*kex))
+    return calcSensitivityCW(nuOpt, C, Pdet, lamb_s)
+
 def PinEtalon(Tm, L, alpha, I, A):
     # return A*I *(1-(1-Tm)*np.exp(-alpha*L))**2/(Tm*np.exp(-alpha*L))
     return A*I /Tm *(1- (1-Tm)*(np.exp(-alpha*L)))**2
+
+def calcEtalonSensitivity(L, A = 1):
+    """Ideal-cavity (etalon) sensitivity for one absorber length L, optimized over mirror transmission Tm."""
+    Tm = np.logspace(-8, 0, 1001)
+    T0 = TEtalon(Tm, L, alpha0)
+    T1 = TEtalon(Tm, L, alpha1)
+    T = T0/2 + T1/2
+    C = np.abs(T0 - T1)/T
+    Pdet = I_sOpt*A*Tm*np.exp(-L*alpha)
+    eta = calcSensitivityCW(nuOpt, C, Pdet, lamb_s)
+    return eta.min()
+
+def calcBeta(A = 1):
+    """Shot-noise-limited sensitivity prefactor shared by the etalon/microdisk closed-form approximations."""
+    return 4/3/np.sqrt(3) * nuOpt/gamma * np.sqrt(hbar*omegas/(I_sOpt*A))
+
+def calcEtalonSensitivitySimple(L, A = 1):
+    """Closed-form approximate ideal-cavity (etalon) sensitivity for one absorber length L."""
+    beta = calcBeta(A)
+    DelAlpha = np.abs(alpha1 - alpha0)
+    return beta*np.sqrt(alpha)/(DelAlpha*np.sqrt(L))
+
+def calcMicrodiskSensitivitySweep(L, ki0, ki1, A = 1):
+    """Side-coupled microdisk sensitivity for one absorber length L, optimized over external coupling rate kex."""
+    beta = calcBeta(A)
+    Delk = np.abs(ki0 - ki1)
+    kex = 2*np.pi*np.logspace(5, 10, 1001)
+    k = kex + ki0/2 + ki1/2
+    eta = beta*np.sqrt(c_const*kex/L/nd)*(
+        np.sqrt(2)*(Delk**2 - 4*k**2)**2 * (k-2*kex)
+    )/(
+        16*Delk*kex*k**2*(4*k*(k-2*kex)-Delk**2)
+    )
+    return eta.min()
 
 def calcBestTm(a0, a1):
     return ((-a0 + a0**2 - (a1-1)*a1 + a0**3*(a1-1)*a1 + a0*a1**3 - a0**2*a1**3)/
@@ -1518,7 +1513,7 @@ def plotMicrodiskTheorySensitivity(saveBool = False):
     C = T0-T1
     P = aMicrodiskRes2PinFibre(L*A, I_sOpt, aMicrodisk)
     R = T*P/(hbar*omegas)
-    eta = np.abs(np.real(calcSensitivityCW_countrate(nu, C, R)))
+    eta = np.abs(np.real(calcSensitivityCW_countrate(nuOpt, C, R)))
     # etaMinarg = np.argmin(eta)
     idx = np.argpartition((eta).ravel(), 2)[:2]
     rows, cols = np.unravel_index(idx, C.shape)
@@ -2793,117 +2788,54 @@ def plotSensitivityRelation(saveBool = False,
     
     plt.show()
     
-def plotSensitivityComparison(saveBool = False,
-                            OmegaR = OmegaROpt,
-                            I_p = I_pOpt,
-                            bw = 0.01e9*2*np.pi,
-                            Npoints = 11,
-                            A = 10e-6**2,
-                            Larr = 0.1*np.array([1e-4,1e-2,1])):# 
+def plotSensitivityComparison(saveBool = False):
+    """Compare shot-noise-limited sensitivity vs absorber length L across ideal-cavity, bulk, and microdisk geometries."""
     fig, ax = plot_custom(
-       PRQuantumWidthHalf, PRQuantumWidthHalf*0.6,  
-        r"$L$ (m)", 
+       PRQuantumWidthHalf, PRQuantumWidthHalf*0.6,
+        r"$L$ (m)",
         r"$\eta\sqrt{A}$ (Tm/$\sqrt{\text{Hz}})$",
         labelPadX = 3, labelPadY = 9 , commonY = False, commonX = True, wSpaceSetting=0,
         spineColor = 'black', tickColor = 'black', textColor = 'black',
         nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize-1,
         widthBool =False, spineWidth = 0.15
     )
-    
-    LArr_m = np.logspace(-8, 0, 101)
-    Tm = np.logspace(-8, 0, 1001)
-    Tm_min_list = []
-    eta_min_list = []
-    etaDiamondIdealCavity = []
-    powerIdealCavity = []
-    A = 1e-9
-    
-    for j, L in enumerate(LArr_m):
-        T0 = TEtalon(Tm, L, alpha0)  
-        T1 = TEtalon(Tm, L, alpha1) 
-        T = T0/2 + T1/2
-        C = (T0-T1)/T
-        P = PinEtalon(Tm, L, alpha, I_sOpt, A)
-        Pdet = I_sOpt*A*Tm*np.exp(L*alpha)
-        eta = calcSensitivityCW(nuOpt, C, Pdet, lamb_s)
-        eta_min = eta.min()
-        powerIdealCavity.append(P[np.argmin(eta)])
-        etaDiamondIdealCavity.append(eta_min)
-        idx = np.argmin(eta)
-        Tm_min_list.append(Tm[idx])
 
-    ax.plot(LArr_m, np.array(etaDiamondIdealCavity), lw = 0.2/0.358)
-    
     LArr_m = np.logspace(-8, 0.5, 101)
-    
-    etaBulk = []    
-    etaBulkSimple = []    
-    etaBulkLin = []    
-    
-    for j, L in enumerate(LArr_m):
-        etaBulkSimple.append(calcBulkSensitivitySimple(L, A))
-        etaBulk.append(calcBulkSensitivity(L, A))
-        etaBulkLin.append(calcBulkSensitivityLin(L, A))
-    
-    
-   
-    ax.plot(LArr_m, np.array(etaBulk), lw = 0.2/0.358)
-    ax.plot(LArr_m, np.array(etaBulkSimple), lw = 0.2/0.358 )
-    ax.plot(LArr_m, np.array(etaBulkLin), lw = 0.2/0.358, color = 'k' , linestyle = '--')
-    
-    
-    
+    A = 1e-12  # sensor area used for all curves below
+
+    # Ideal cavity (etalon): numeric optimum over mirror transmission Tm, and closed-form approximation
+    etaDiamondIdealCavity = np.array([calcEtalonSensitivity(L, A) for L in LArr_m])
+    etaDiamondIdealCavitySimp = np.array([calcEtalonSensitivitySimple(L, A) for L in LArr_m])
+    ax.plot(LArr_m, etaDiamondIdealCavity*np.sqrt(A), lw = 0.2/0.358, zorder = 10)
+    ax.plot(LArr_m, etaDiamondIdealCavitySimp*np.sqrt(A), lw = 0.2/0.358, zorder = 10)
+
+    # Bulk sample, no cavity: full numeric, simplified, and linearized sensitivity
+    etaBulk = np.array([calcBulkSensitivity(L, A) for L in LArr_m])
+    etaBulkSimple = np.array([calcBulkSensitivitySimple(L, A) for L in LArr_m])
+    etaBulkLin = np.array([calcBulkSensitivityLin(L, A) for L in LArr_m])
+    ax.plot(LArr_m, etaBulk*np.sqrt(A), lw = 0.2/0.358)
+    ax.plot(LArr_m, etaBulkSimple*np.sqrt(A), lw = 0.2/0.358)
+    ax.plot(LArr_m, etaBulkLin*np.sqrt(A), lw = 0.2/0.358, color = 'k', linestyle = '--')
+
+    # Side-coupled microdisk cavity: closed-form approximation, optimized over coupling rate kex
+    ki0 = alpha2kappa(alpha0)
+    ki1 = alpha2kappa(alpha1)
+    etaDisk = np.array([calcMicrodiskSensitivitySweep(L, ki0, ki1, A) for L in LArr_m])
+    ax.plot(LArr_m, etaDisk*np.sqrt(A), lw = 0.2/0.358, color = 'r', linestyle = '-')
+
     ax.set_xscale('log')
     ax.set_yscale('log')
-    
-    
-    # ax.loglog(Qi, etaUC0/etaUC.min(), lw = 0.2/0.358, color =colors[0])
-    # ax.loglog(Qi, etaUC/etaUC.min(), lw = 0.2/0.358, color =colors[2])
-    # ax.loglog(omega0/kex*np.ones(2), [1e0, 1e9], lw = 0.2/0.358, color = 'k')
-    
-    # ax.loglog(Qi, etaSimpleUC, lw = 0.2/0.358, color =colors[2], linestyle = '--' )
-    
-    
     plt.tight_layout()
-        
-        
-    ax.spines["right"].set_visible(False)
-    ax.spines["top"].set_visible(False)
-    # ax.spines["bottom"].set_visible(False)
-    # ax.spines["left"].set_visible(False)
-    ax.yaxis.set_ticks_position('left')
-    ax.tick_params(axis='y', which='both', left=True, right=False)
-    ax.tick_params(axis='x', which='both', top=False, bottom=True)
 
-    min_x_value=LArr_m.min()
-    max_x_value = LArr_m.max()
-    min_y_value=0.3
-    max_y_value = 1e7
-    # ticks = [1, 1e3, 1e6, 1e9]
-    # ax.set_xticks(ticks)
-    # ax.set_yticks([1,1e2,1e4, 1e6])
-    # ax.set_yticklabels([r'$0$', r'$1$', r'$2$', r'$3$', r'$4$'])
-    # ax.set_yticks([], minor = True)
-    # ax.set_ylim([min_y_value, max_y_value*4])
-    
-    # Create labels like 10^x
-    # labels = [r"$10^{%.0f}$" % int(np.round(np.log10(t))) for t in ticks]
-    # ax.set_xticklabels(labels)
-    
-    # ax.set_ylim([min_y_value/4, max_y_value*4])
-    # ax.set_xlim([min_x_value/6, max_x_value*4])
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(LArr_m.min(), LArr_m.max()),
+                                    logScale=True, logScaleX=True,
+                                    limScale=0.1, limScaleY=0.1)
 
-    ax.spines['bottom'].set_bounds(min_x_value,max_x_value)
-    # ax.spines['left'].set_bounds(1,max_y_value*2)
-    # ax.xaxis.set_label_position("bottom")
-    # ax.xaxis.set_ticks_position('bottom')
-
-        
     if saveBool:
         fig.savefig(
             (_FIGURES_DIR + "/") + "SensitivityRelation.svg", dpi=300, bbox_inches="tight",transparent=True
         )
-    
+
     plt.show()
   
 def plotEtalonSensitivity1D(saveBool = False,
@@ -3033,7 +2965,7 @@ def plotEtalonSensitivityCavityLength(saveBool = False):
     C = T0-T1
     P = PinEtalon(T, Lm, alpha, I_sOpt, A)
     R = Tavg*P/(hbar*omegas)
-    eta = calcSensitivityCW_countrate(nu, C, R)
+    eta = calcSensitivityCW_countrate(nuOpt, C, R)
     etaMinarg = np.argmin(np.abs(T))
     
     print('min eta: ', eta[etaMinarg])
@@ -6671,7 +6603,7 @@ def plotLockinExample(saveBool = False):
     fmin = -fBW
     fmax = fBW
     f = np.linspace(fmin, fmax, 1000)
-    gammaMW = nu/1.5
+    gammaMW = nuOpt/1.5
     
     TMW = microwaveDetuning1(f, gammaMW, 0, 0.5, 0)
     TMWOffset = microwaveDetuning1(f, gammaMW, -8e6, 0.5, 0)
@@ -8191,13 +8123,13 @@ if __name__ == "__main__":
 
     ## figure 1
     # plotZeemanSplitting(saveBool = saveBool)
-    plotSpinContrastMechanisms(saveBool = saveBool)
+    # plotSpinContrastMechanisms(saveBool = saveBool)
 
     ## figure 2
     # solveSensitivityVaryIRPower(saveBool = saveBool)
     # plotEtalonSensitivity1D(saveBool)
     # plotSensitivityRelation(saveBool)
-    # plotSensitivityComparison(saveBool)
+    plotSensitivityComparison(saveBool)
 
     ## figure 3
     # plotIRSpectrometerCombined(saveBool)
