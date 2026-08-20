@@ -3704,7 +3704,7 @@ def plotODMRFittingCurves(saveBool = False):
        PRQuantumWidthHalf*0.6, PRQuantumWidthHalf*0.6,
        r"$\Delta\omega_{\text{MW}}/2\pi$ (MHz)",
        r"lock-in signal, $S_{\text{LI}}$ ($\upmu$V)" #"coincidence rate (mHz/mW)"
-       , labelPadX = 5, labelPadY = 8, commonY = False, commonX = True, wSpaceSetting=0, hSpaceSetting = 0,
+       , labelPadX = 5, labelPadY = 5, commonY = False, commonX = True, wSpaceSetting=0, hSpaceSetting = 0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
        ncol = 1,nrow =1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
        widthBool = False
@@ -3746,10 +3746,10 @@ def plotODMRFittingCurves(saveBool = False):
     dwdBGHzpT = gamma/1e9
     dSdwuVpMHz = microwaveDetuningDDeriv3(0,*popt)*1e6 * 1e6
     dSdwuVpMHzDiff = microwaveDetuningDDeriv3(0,*popt)*1e6 * 1e6 - microwaveDetuningDDeriv3(0,*(popt+perr))*1e6 * 1e6
-    print(dSdwuVpMHz) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
-    print(dSdwuVpMHzDiff) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
-    print(dSdwuVpMHz * dwdBGHzpT*1e3/1e6) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
-    print(dSdwuVpMHzDiff * dwdBGHzpT*1e3/1e6) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
+    # print(dSdwuVpMHz) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
+    # print(dSdwuVpMHzDiff) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
+    # print(dSdwuVpMHz * dwdBGHzpT*1e3/1e6) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
+    # print(dSdwuVpMHzDiff * dwdBGHzpT*1e3/1e6) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
 
     ax.scatter(f, S_V_1D*1e6, edgecolors='none', marker = '.', s = 8, zorder = 10, color = colorDarkRed)
     ax.plot(fCont, S_fit, color=colorRed, lw=0.2/0.3528)
@@ -3758,22 +3758,12 @@ def plotODMRFittingCurves(saveBool = False):
     # lineshape's slope near line center
     fLin = np.linspace(-1,1,2)*0.35
     ax.plot(fLin, -fLin*11.4, linestyle = '--',color=colorBlue, lw=0.2/0.3528)
-
-    ax.spines["right"].set_visible(False)
-    ax.spines["top"].set_visible(False)
-    ax.yaxis.set_ticks_position('left')
-    ax.tick_params(axis='y', which='both', left=True, right=False, labelleft=True)
-    ax.tick_params(axis='x', which='both', top=False, bottom=True)
-
-    ax.set_xlim([-11,10])
-    ax.spines['bottom'].set_bounds(-10,10)
-    ax.xaxis.set_label_position("bottom")
-    ax.xaxis.set_ticks_position('bottom')
-
-    ax.spines['left'].set_bounds(np.min(S_fit),np.max(S_fit))
-    ax.set_yticks([np.min(S_fit), 0, np.max(S_fit)])
+    
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(-10, 10), ylim=(np.min(S_fit), np.max(S_fit)),
+                                    xticks=[-10,0,10], yticks=[-np.max(S_fit), 0, np.max(S_fit)],
+                                    )
     ax.set_yticklabels([rf"${val:.1f}$" for val in ax.get_yticks()])
-
+    
     if saveBool:
         fig.savefig(
             (_FIGURES_DIR + "/") + "signalConversionCAFQA" + ".svg", dpi=300, bbox_inches="tight",transparent=True
@@ -3782,42 +3772,40 @@ def plotODMRFittingCurves(saveBool = False):
     plt.show()
 
 def plotNoiseFigure(saveBool = False):
-    
+    """Magnetic noise PSD spectrum and Allan deviation from a fixed-field CW ODMR time trace."""
     fig, axArr = plot_custom(
-       PRQuantumWidthHalf*1.5, PRQuantumWidthHalf*0.6, 
-       [r"frequency, $f$ (Hz)", r"averaging time, $t$ (s)"], 
-       [r"magnetic noise (nT/$\sqrt{\text{Hz}}$)",r"Allan deviation, $\sigma_a$ (nT)"] #"coincidence rate (mHz/mW)"
+       PRQuantumWidthHalf*1.5, PRQuantumWidthHalf*0.6,
+       [r"frequency, $f$ (Hz)", r"averaging time, $t$ (s)"],
+       [r"magnetic noise (nT/$\sqrt{\text{Hz}}$)",r"Allan deviation, $\sigma_a$ (nT)"]
        , labelPadX = 5, labelPadY = 5, commonY = False, commonX = False, wSpaceSetting=0, hSpaceSetting = 0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
        ncol = 2,nrow = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize-0.5,
        widthBool = True, widthRatios = [1,0.8], heightRatios = [1]
     )
-    
+
     directoryCW = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260201/'
     filenameCW =  '/TimeSignal_20260201_CW__16_12dBAtt_4.2um_0_1__2.7767GHz_4MHz_007_timeSignal.mat';
 
-    # load data
+    # load the fixed-field time-domain lock-in signal, mean-subtracted
     mat = loadmat(directoryCW + filenameCW)
     S_V = np.squeeze(mat['signal'])
     S_V -= np.mean(S_V)
-    
+
     time = np.squeeze(mat['time'])
     tau = time[1]-time[0]
     fss = 1/tau
-    
+
     def sig2BCW(signal):
         return signal*1e6/0.318 # V * 1e6 uV/V / 0.318 uV/uT * 1e3 nT/uT
-    
-    
+
     B_uT = sig2BCW(S_V)
     xlimAD = 1e3
-        
     N = len(B_uT)
-    
-    # fft, f = fft(time, fss, N)
+
+    # --- Panel 0: magnetic noise power spectral density ---
     f, psd = welch(B_uT, fs=fss, nperseg=2**20)
-    fAvg, psdAvg = welch(B_uT, fs=fss, nperseg=2**16)
-    
+    fAvg, psdAvg = welch(B_uT, fs=fss, nperseg=2**16)  # coarser PSD estimate, smoother at high f
+
     magNoiseuT = np.sqrt(psd)
     magNoiseAvguT = np.sqrt(psdAvg)
     filt = (f>=1e-2) & (f<=1e3)
@@ -3826,114 +3814,78 @@ def plotNoiseFigure(saveBool = False):
     filt = (fAvg>=1e-2) & (fAvg<=1e3)
     fAvg = fAvg[filt]
     magNoiseAvgnT = magNoiseAvguT[filt]*1000
-    
+
+    # sensitivity floor: average noise below 10 Hz, where the spectrum is flat
     sensitivityPSD = np.mean(magNoisenT[f < 1e1])
     print('PSD extracted sensitivity: ', sensitivityPSD, ' nT')
-    
-    filtAvg = (f>=1e-2) & (f<=1e3)
-    
-    m_values = np.arange(1, N // 2 - 10)  # All possible m integers up to N/2 - 10
+
+    axArr[0].plot(f, magNoisenT, linestyle = '-', color=colorDarkRed, lw = 0.2/0.3528)
+    axArr[0].plot(fAvg, magNoiseAvgnT, linestyle = '-', color=colorRed, lw = 0.2/0.3528)
+    axArr[0].plot([1e-3, 1e3], [sensitivityPSD, sensitivityPSD], linestyle = '--', color='k', lw = 0.2/0.3528, zorder = 11)
+    axArr[0].set_xscale('log')
+    axArr[0].set_yscale('log')
+
+    # --- Panel 1: Allan deviation vs averaging time ---
+    m_values = np.arange(1, N // 2 - 10)  # all possible m integers up to N/2 - 10
     m_values = np.logspace(np.log10(np.min(m_values)), np.log10(np.max(m_values)), 101)
-    avar = np.zeros_like(m_values, dtype=float)
     taum = m_values / fss
-    
-    # Compute Allan variance
-    (t2, ad, ade, adn) = oadev(B_uT, rate=fss, data_type="freq", taus=taum)
+    (t2, ad, _, _) = oadev(B_uT, rate=fss, data_type="freq", taus=taum)
 
     filt = (t2>=1e-2) & (t2<=xlimAD)
     t2 = t2[filt]
     ad = ad[filt]
 
-    def model_func(logt, logsens):
-        return -1/2*logt + logsens
-    
+    # fit the standard white/flicker/random-walk Allan-deviation noise model to
+    # extract the white-noise-limited sensitivity (A)
     def allan_func(t, A, B, C):
         return np.log10((A**2)/t + (B**2) + (C**2)*t)
-    
+
     p0 = [1e-1, 0, 10e-4]
-    popt, pcov = curve_fit(allan_func, t2, np.log10(ad**2), p0=p0)
-    
-    # print(popt)
+    popt, _ = curve_fit(allan_func, t2, np.log10(ad**2), p0=p0)
     sensitivityAD = popt[0]
     print('Allan deviation extracted sensitivity: ', sensitivityAD*np.sqrt(2)*1000, ' nT')
-    
-    tCont = np.logspace(-2, 3, 1000)
-    adFit = allan_func(tCont, *popt)
-    adFit = np.sqrt(10**adFit)
-    
+
+    tCont = np.logspace(-2, 3, 1000)  # reused below for panel 1's x-axis bounds
     ad *= 1000
-    adFit *= 1000
-  
-    lw = 0.2/0.3528
-    axArr[0].plot(f, magNoisenT, linestyle = '-', color=colorDarkRed, lw = lw)
-    axArr[0].plot(fAvg, magNoiseAvgnT, linestyle = '-', color=colorRed, lw = lw)
-    axArr[0].plot([1e-3, 1e3], [sensitivityPSD, sensitivityPSD], linestyle = '--', color='k', lw = lw, zorder = 11)
-    axArr[0].set_xscale('log')
-    axArr[0].set_yscale('log')
-    
-    # axArr[1].plot(tCont , adFit, linestyle = '-', color=colorDarkRed, lw = lw)
-    axArr[1].plot(np.logspace(-3, 3, 1000) , 1/np.sqrt(np.logspace(-3, 3, 1000))*50, linestyle = '-', color='k', lw = lw)
+
+    axArr[1].plot(np.logspace(-3, 3, 1000) , 1/np.sqrt(np.logspace(-3, 3, 1000))*50, linestyle = '-', color='k', lw = 0.2/0.3528)
     axArr[1].scatter(t2 , ad, marker = '.', color=colorRed, s = 12,zorder = 11, edgecolors='none')
     axArr[1].set_xscale('log')
     axArr[1].set_yscale('log')
-    
-    for ax in axArr:
-        ax.spines["right"].set_visible(False)
-        ax.spines["top"].set_visible(False)
-        ax.yaxis.set_ticks_position('left')
-        ax.tick_params(axis='y', which='both', left=True, right=False, labelleft=True)
-        ax.tick_params(axis='x', which='both', top=False, bottom=True)
-        
-   
+
     plt.tight_layout()
-    
+
+    # --- Panel 0 axis formatting: hardcoded spine bounds, y-ticks are the
+    # in-bounds auto ticks plus the extracted sensitivity value ---
     ax = axArr[0]
-    
-    ax.spines['bottom'].set_bounds(1e-2,5e2)
-    ax.set_xlim([np.min(f)*0.65,np.max(f)])
-    xticksMinor = ax.get_xticks(minor = True)
-    filt = np.logical_and(~(xticksMinor < 1e-2), ~(xticksMinor > 5e2))
-    ax.set_xticks(xticksMinor[(filt)], minor = True)
-    
-    ax.spines['left'].set_bounds(5e1,1e3)
-    ax.set_ylim([4.3e1,1e3])
-    
-    yticks = ax.get_yticks()
-    
-    filt = np.logical_and((yticks <= 1e3), (yticks >= 5e1))
-    
-    ax.set_yticks(np.concatenate([yticks[filt],[sensitivityPSD]]), minor = False)
-    yticks = ax.get_yticks()
-    # print(yticks)
+    yticks0 = ax.get_yticks()
+    yticks0 = yticks0[np.logical_and(yticks0 <= 1e3, yticks0 >= 5e1)]
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(1e-2, 5e2), ylim=(5e1, 1e3),
+                                    yticks=np.concatenate([yticks0, [sensitivityPSD]]),
+                                    logScale=True, logScaleX=True)
+    ax.set_xlim([np.min(f)*0.65, np.max(f)])
+    ax.set_ylim([4.3e1, 1e3])
     ax.set_yticklabels([r'$100$', r'$1000$', rf'${sensitivityPSD:.0f}$'])
-    
-    
-    
-    ax = axArr[1]
-    
-    ax.spines['bottom'].set_bounds(np.min(tCont),np.max(tCont))
-    ax.set_xlim([np.min(tCont)*0.7,np.max(tCont)])
+    # keep only the minor x-ticks that fall within the visible frequency range
     xticksMinor = ax.get_xticks(minor = True)
-    filt = np.logical_and(~(xticksMinor < 1e-2), ~(xticksMinor > xlimAD))
-    ax.set_xticks(xticksMinor[(filt)], minor = True)
-    
-    ax.spines['left'].set_bounds(np.min(ad),np.max(ad))
-    ax.set_ylim([np.min(ad)*0.8,np.max(ad)*1.01])
-    yticks = ax.get_yticks()
-    
-    filt = np.logical_and(~(yticks < np.min(ad)), ~(yticks > np.max(ad)))
-    ax.set_yticks(np.concatenate([yticks[filt],np.array([np.min(ad),np.max(ad) ])]), minor = False)
-    yticks = ax.get_yticks()
-    # print(yticks)
-    ax.set_yticklabels([r'$100$', r'$1000$', r'$12.8$', r''])
-    
-    # ax.set_yticks([np.min(S_fitDeriv_uVpermT), 0, np.max(S_fitDeriv_uVpermT)])
-    # ax.set_yticklabels([rf"${val:.0f}$" for val in ax.get_yticks()])
-    # ax.set_ylim([-0.2,None])
-    
+    ax.set_xticks(xticksMinor[np.logical_and(xticksMinor >= 1e-2, xticksMinor <= 5e2)], minor = True)
+
+    # --- Panel 1 axis formatting: same pattern, bounds set by the data range ---
+    ax = axArr[1]
+    yticks1 = ax.get_yticks()
+    yticks1 = yticks1[np.logical_and(yticks1 >= np.min(ad), yticks1 <= np.max(ad))]
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(np.min(tCont), np.max(tCont)), ylim=(np.min(ad), np.max(ad)),
+                                    yticks=np.concatenate([yticks1, [np.min(ad), np.max(ad)]]),
+                                    logScale=True, logScaleX=True)
+    ax.set_xlim([np.min(tCont)*0.7, np.max(tCont)])
+    ax.set_ylim([np.min(ad)*0.8, np.max(ad)*1.01])
+    ax.set_yticklabels([r'$100$', r'$1000$', r'$12.8$', r''])  # last tick label intentionally blank
+    xticksMinor = ax.get_xticks(minor = True)
+    ax.set_xticks(xticksMinor[np.logical_and(xticksMinor >= 1e-2, xticksMinor <= xlimAD)], minor = True)
+
     fig.subplots_adjust(wspace=0.4)
     fig.subplots_adjust(hspace=0.35)
-    
+
     if saveBool:
         fig.savefig(
             (_FIGURES_DIR + "/") + "noiseMeasurement" + ".svg", dpi=300, bbox_inches="tight",transparent=True
@@ -7983,8 +7935,8 @@ if __name__ == "__main__":
     # plotWideTransmissionAndSignal(saveBool)
 
     ## figure 6
-    plotODMRFittingCurves(saveBool = saveBool)
-    # plotNoiseFigure(saveBool = saveBool)
+    # plotODMRFittingCurves(saveBool = saveBool)
+    plotNoiseFigure(saveBool = saveBool)
 
     # figure 7
     # plotDetuningExample(saveBool)
