@@ -3699,103 +3699,88 @@ def plotWideTransmissionAndSignal(saveBool = False):
 
 #%%% Figure 6
 def plotODMRFittingCurves(saveBool = False):
-    
-    fig, axArr = plot_custom(
-       PRQuantumWidthHalf*0.6, PRQuantumWidthHalf*0.6, 
-       r"$\Delta\omega_{\text{MW}}/2\pi$ (MHz)", 
+    """Fit the CW-ODMR lock-in derivative lineshape and plot it with a reference slope line."""
+    fig, ax = plot_custom(
+       PRQuantumWidthHalf*0.6, PRQuantumWidthHalf*0.6,
+       r"$\Delta\omega_{\text{MW}}/2\pi$ (MHz)",
        r"lock-in signal, $S_{\text{LI}}$ ($\upmu$V)" #"coincidence rate (mHz/mW)"
        , labelPadX = 5, labelPadY = 8, commonY = False, commonX = True, wSpaceSetting=0, hSpaceSetting = 0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
        ncol = 1,nrow =1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
        widthBool = False
     )
-    
+
     directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260201/';
     filename = 'ODMR_20260201_CW__16_12dBAtt_4.2um_0_1__2.7767GHz_16MHz_001.mat';
 
-    data = loadmat(directory + filename, squeeze_me=True)
-    data = data['data']
-    
-    W_nm = np.squeeze(data['laserWLsRead'].item())
-    
+    data = loadmat(directory + filename, squeeze_me=True)['data']
+
     S_V = data['signal'].item()
     C = data['contrast'].item()
     DC_V = S_V/C
-    DeltaT = S_V/np.max(DC_V)
-    power = data['powerIn'].item()
     freqsODMR = data['freqsODMR'].item()
     f = freqsODMR*1e-6-2776.6
     fCont = np.linspace(-10, 10, 1000)
-    p0 = [2e6, -1e-5, -7,0]
     p0 = [1e6, 1e5, -10, 1e-7]
-    
-    S_fit = microwaveDetuningDeriv3(fCont*1e6, *p0)
-    
+
+    # average over a narrow wavelength slice near resonance to get a 1D MW-detuning trace
     DC_V_1D = np.mean(DC_V[:, 490:495], 1)
     S_V_1D = np.mean(S_V[:, 490:495], 1)
-    
-    sigma_laser = DC_V_1D.mean()*np.sqrt(1e-12*1000/2)
-    
+
+    # first-pass fit just to find the MW-frequency/signal offsets, then recenter
+    # the data on them before fitting again -- keeps the second fit well-conditioned
     popt, pcov = curve_fit(microwaveDetuningDeriv3, f*1e6, S_V_1D, p0=p0)
-    
     offset = popt[1]
     yoffset = popt[-1]
     f = f - offset/1e6
     S_V_1D = S_V_1D + yoffset*2
-    
+
     popt, pcov = curve_fit(microwaveDetuningDeriv3, f*1e6, S_V_1D, p0=p0)
     perr = np.sqrt(np.diag(pcov))  # standard deviations of parameters
-    
+
     S_fit = microwaveDetuningDeriv3(fCont*1e6, *popt)*1e6 # V * 1e6 uV/V
-    S_fitDeriv_uVperMHz = microwaveDetuningDDeriv3(fCont*1e6, *popt) * 1e6 * 1e6 # V/Hz *1e6 uV/V *1e6 Hz/MHz
-    S_fitDeriv_uVpermT = S_fitDeriv_uVperMHz*1e3*28*1e-3 # uV/MHz * 1e3 MHz/GHz * 28 GHz/T * 1e-3 T/mT
-    
+
+    # convert the fitted lineshape's slope at line center (dS/dw) into a magnetic
+    # field sensitivity (dS/dB via the NV gyromagnetic ratio gamma), propagating
+    # the fit uncertainty perr through the same conversion
+    dwdBGHzpT = gamma/1e9
     dSdwuVpMHz = microwaveDetuningDDeriv3(0,*popt)*1e6 * 1e6
     dSdwuVpMHzDiff = microwaveDetuningDDeriv3(0,*popt)*1e6 * 1e6 - microwaveDetuningDDeriv3(0,*(popt+perr))*1e6 * 1e6
-    dwdBGHzpT = gamma/1e9
     print(dSdwuVpMHz) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
     print(dSdwuVpMHzDiff) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
     print(dSdwuVpMHz * dwdBGHzpT*1e3/1e6) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
     print(dSdwuVpMHzDiff * dwdBGHzpT*1e3/1e6) # V/Hz * 1Hz / 1e-9MHz * 1e6 uV/V
-    
-    
-    axArr.scatter(f, S_V_1D*1e6, edgecolors='none', marker = '.', s = 8, zorder = 10, color = colorDarkRed)
-    # axArr.scatter(f, DC_V_1D, edgecolors='none', marker = '.', s = 8, zorder = 10, color = colorDarkRed)
 
+    ax.scatter(f, S_V_1D*1e6, edgecolors='none', marker = '.', s = 8, zorder = 10, color = colorDarkRed)
+    ax.plot(fCont, S_fit, color=colorRed, lw=0.2/0.3528)
+
+    # reference slope line, plotted for visual comparison against the fitted
+    # lineshape's slope near line center
     fLin = np.linspace(-1,1,2)*0.35
-    
-    axArr.plot(fCont, S_fit, color=colorRed, lw=0.2/0.3528)
-    axArr.plot(fLin, -fLin*11.4, linestyle = '--',color=colorBlue, lw=0.2/0.3528)
-    
-    # axArr[1].plot(fCont, S_fitDeriv_uVpermT, color=colorRed, lw=0.2/0.3528)
-    ax = axArr
-    # for ax in axArr:
+    ax.plot(fLin, -fLin*11.4, linestyle = '--',color=colorBlue, lw=0.2/0.3528)
+
     ax.spines["right"].set_visible(False)
     ax.spines["top"].set_visible(False)
     ax.yaxis.set_ticks_position('left')
     ax.tick_params(axis='y', which='both', left=True, right=False, labelleft=True)
     ax.tick_params(axis='x', which='both', top=False, bottom=True)
-    
+
     ax.set_xlim([-11,10])
     ax.spines['bottom'].set_bounds(-10,10)
     ax.xaxis.set_label_position("bottom")
     ax.xaxis.set_ticks_position('bottom')
-    
+
     ax.spines['left'].set_bounds(np.min(S_fit),np.max(S_fit))
     ax.set_yticks([np.min(S_fit), 0, np.max(S_fit)])
     ax.set_yticklabels([rf"${val:.1f}$" for val in ax.get_yticks()])
-   
-    
+
     if saveBool:
         fig.savefig(
             (_FIGURES_DIR + "/") + "signalConversionCAFQA" + ".svg", dpi=300, bbox_inches="tight",transparent=True
         )
 
     plt.show()
-    
 
-    
-    
 def plotNoiseFigure(saveBool = False):
     
     fig, axArr = plot_custom(
