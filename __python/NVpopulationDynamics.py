@@ -413,9 +413,9 @@ def solveSensitivitySingle(OmegaR = gamma_phi,
                     Cdet[k] = _solveSensitivitySingle_worker(det, OmegaR, I_s, I_p, p7Off)
 
             peaks, FWHM = solvePeakWidthAndHeight(detunings/1e9/(2*np.pi), Cdet)
-            plt.plot(detunings/1e9/(2*np.pi),Cdet)
+            # plt.plot(detunings/1e9/(2*np.pi),Cdet)
             # print('FWHM ', FWHM, ' bw ', bw/1e9/(2*np.pi))
-            plt.show()
+            # plt.show()
             if np.size(FWHM) < 1:
                 print('FWHM fitting didnt work')
             # elif (np.max(Cdet) - np.min(Cdet))/np.max(Cdet) < 0.01:
@@ -1030,7 +1030,7 @@ def solvePopulationIR(saveBool = False,
             p7[i] = p7On[i]/p7Off[i]
 
     # C = C/np.max(C)#
-    power = I_IR/np.max(I_IR)*31.7050  # TODO(nick): confirm meaning/origin of 31.7050 (calibration factor?)
+    power = I_IR/np.max(I_IR)*31.7050  # 31.7050 calibration factor
     if plotBool:
         fig, ax = plot_custom(
            PRQuantumWidthFull*0.33, 0.28*PRQuantumWidthFull,  
@@ -1134,7 +1134,7 @@ def solvePopulationGreen(saveBool = False,
                 bw = bw/3
                 continue
     
-    C = C/np.max(C)*6.7e-4  # TODO(nick): confirm meaning/origin of 6.7e-4 (calibration factor?)
+    C = C/np.max(C)#*6.7e-4  
     if plotBool:
         fig, ax = plot_custom(
            PRQuantumWidthFull*0.33, 0.28*PRQuantumWidthFull,  
@@ -3223,10 +3223,13 @@ def solvePopulationSteadyState(saveBool = False, bool1042 = False):
     ax[0].set_ylim([1e-5, 1])
     plt.tight_layout()
     ax[0].set_xscale('log');
+    ax[0].set_yscale('log');
+    ax[1].set_yscale('log');
     
     
     plt.tight_layout()
     plt.xscale('log');
+    plt.yscale('log');
     
     plt.show()
     
@@ -3341,7 +3344,7 @@ if __name__ == "__main__":
     # solveTimeDependentPopulation(OmegaR =  2*np.pi*6e6, I_s = I_sOpt, I_p = I_pOpt, detuning = detuning, saveBool = saveBool)
     # solvePopulationSteadyState(saveBool, bool1042 = True)
     # solvePopulationSteadyStateOmegaR(saveBool, bool1042 = False)
-    # solvePopulationSteadyStateContrast(saveBool = saveBool, bool1042 = False)
+    solvePopulationSteadyStateContrast(saveBool = saveBool, bool1042 = False)
     # solvePopulationDetuningHyperfineLineplot(saveBool)
     # solveNVPL_GreenOmegaR()
     
@@ -3364,7 +3367,7 @@ if __name__ == "__main__":
     
     
     # solveSensitivityVaryIRPower(saveBool = saveBool)
-    performOptimization()
+    # performOptimization()
     # performNVPLVisOptimization()
     
 

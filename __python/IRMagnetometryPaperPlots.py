@@ -3610,7 +3610,7 @@ def plotWideTransmissionAndSignal(saveBool = False):
     data = loadmat(filePath, squeeze_me=True)
 
     W = data['W']
-    TOut = data['TOut']-0.03
+    TOut = data['TOut']-0.03 # correct a bad normalization
     TOut /= TOut.max()
 
     filt = np.logical_and(W< lambmax, W>lambmin)
@@ -3642,44 +3642,22 @@ def plotWideTransmissionAndSignal(saveBool = False):
     # returns its transmission (TMean) and ODMR contrast (DeltaTFit) vs
     # detuning from that mode; sum the modes' contributions across the shared
     # wavelength grid lambArr to get the overlaid theory curves yTop/yBot.
-    lambModes = np.array([1040.74, 1042.98, 1047.12, 1048.62, 1057.6, 1061.29])
-    t = np.array([0.98,0.947,0.69,0.9,1,0.93])  # per-mode transmission on/off-resonance scale factor
+    lamb = 1040.74
+    t =  0.98 # per-mode transmission on/off-resonance scale factor
     Veff = calcVeff()
-    gradScale = np.array([1,1,1,10,1,2])  # per-mode weighting of the dispersive (gradient) contrast term
     lambArr = np.linspace(1040e-9, 1041.5e-9, 501)
 
-    yTop = lambArr * 0
-    yBot = lambArr * 0
-    for i, lamb in enumerate(lambModes):
-        # popt = [kex1, kex2, ki1, ki2, g, tau, phi, P_in, scale], matching
-        # calcDeltaMicrodiskReturnT's signature.
-        # NOTE: only mode 0 (i==0) has its own individually fitted popt below;
-        # modes 1-5 all share the SAME hardcoded popt (the "else" branch).
-        # Confirm whether that's a deliberate placeholder/approximation or
-        # whether the other 5 modes still need their own fits.
-        if i == 0:
-           popt= [ 1.17471071e+10,  1.13956599e+10,  4.21688689e+10,  4.20331073e+10,
-              4.59152053e+09 , 8.86694080e-01, -5.64339617e-02 , 8.90467804e-06,
-              1]
-        else:
-           popt= [4.79640598e+10, 3.63207302e+10, 1.50710268e+10, 1.36458848e+10,
-            5.84276809e+09 ,9.47568803e-01, 3.98692216e-02, 5.72327012e-06,
-            1
-            ]
-        print('Qcav: ', c_const/lamb/1e-9/popt[2])
+    popt= [ 1.17471071e+10,  1.13956599e+10,  4.21688689e+10,  4.20331073e+10,
+       4.59152053e+09 , 8.86694080e-01, -5.64339617e-02 , 8.90467804e-06*0.9,
+       1]
+    print('Qcav: ', c_const/lamb/1e-9/popt[2])
 
-        deltaOmegaGHz = (c_const/lambArr-c_const/lamb/1e-9)*1e-9
-        DeltaTFit, TMean,kabs0, kabs1, alphaOff, alphaOn= calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, printBool = True, Veff =Veff)
-        TMean/= TMean.max()
+    deltaOmegaGHz = (c_const/lambArr-c_const/lamb/1e-9)*1e-9
+    DeltaTFit, TMean,kabs0, kabs1, alphaOff, alphaOn= calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, printBool = True, Veff =Veff)
+    TMean/= TMean.max()
 
-        # dispersive lineshape contribution (derivative of transmission), added
-        # on top of the direct absorptive contrast DeltaTFit
-        gradient = np.gradient(TMean*t[i], deltaOmegaGHz)
-        yTop += (TMean-1)*t[i]
-        yBot += DeltaTFit*1e4+ gradScale[i]*gradient
-
-    axArr[0].plot(lambArr/1e-9, (yTop+1)*0.98, lw = 0.2/0.3528, color = colorLightRed)
-    axArr[1].plot(lambArr/1e-9, yBot, lw = 0.2/0.3528, color = colorBlue)
+    axArr[0].plot(lambArr/1e-9, TMean*t, lw = 0.2/0.3528, color = colorLightRed)
+    axArr[1].plot(lambArr/1e-9, DeltaTFit*1e4, lw = 0.2/0.3528, color = colorBlue)
 
     plt.tight_layout()
 
@@ -3697,8 +3675,8 @@ def plotWideTransmissionAndSignal(saveBool = False):
             ax.tick_params(axis='x', which='both', top=False, bottom=False)
         else:
             ax.set_ylim([-1.4*2,1.9*2])
-            ax.spines['left'].set_bounds(-1.1*2, 3.2)
-            ax.set_yticks([-1.1, 0, 1.8])
+            ax.spines['left'].set_bounds(-1.1*2, 3.6)
+            ax.set_yticks([-1.1*2, 0, 1.8*2])
             
             ax.set_yticklabels([rf"${val:.1f}$" for val in ax.get_yticks()])
             ax.tick_params(axis='x', which='both', top=False, bottom=True)
@@ -3757,10 +3735,6 @@ def plotODMRFittingCurves(saveBool = False):
     S_V_1D = np.mean(S_V[:, 490:495], 1)
     
     sigma_laser = DC_V_1D.mean()*np.sqrt(1e-12*1000/2)
-    print('sigma_laser: ', sigma_laser)
-    
-    print('power in: ', power.mean())
-    print('power det: ', power.mean()*DC_V_1D.mean()*etaFibreIR*etaPostFibre)
     
     popt, pcov = curve_fit(microwaveDetuningDeriv3, f*1e6, S_V_1D, p0=p0)
     
@@ -3807,18 +3781,10 @@ def plotODMRFittingCurves(saveBool = False):
     ax.xaxis.set_label_position("bottom")
     ax.xaxis.set_ticks_position('bottom')
     
-    # ax = axArr[0]
-    
     ax.spines['left'].set_bounds(np.min(S_fit),np.max(S_fit))
     ax.set_yticks([np.min(S_fit), 0, np.max(S_fit)])
     ax.set_yticklabels([rf"${val:.1f}$" for val in ax.get_yticks()])
    
-    # ax = axArr[1]
-    
-    # ax.spines['left'].set_bounds(np.min(S_fitDeriv_uVpermT),np.max(S_fitDeriv_uVpermT))
-    # ax.set_yticks([np.min(S_fitDeriv_uVpermT), 0, np.max(S_fitDeriv_uVpermT)])
-    # ax.set_yticklabels([rf"${val:.0f}$" for val in ax.get_yticks()])
-    # # ax.set_ylim([-0.2,None])
     
     if saveBool:
         fig.savefig(
@@ -8029,10 +7995,10 @@ if __name__ == "__main__":
     ## figure 5
     # plotNarrowTransmissionPaper(saveBool)
     # plotZeroFieldODMR(saveBool)
-    plotWideTransmissionAndSignal(saveBool)
+    # plotWideTransmissionAndSignal(saveBool)
 
     ## figure 6
-    # plotODMRFittingCurves(saveBool = saveBool)
+    plotODMRFittingCurves(saveBool = saveBool)
     # plotNoiseFigure(saveBool = saveBool)
 
     # figure 7
