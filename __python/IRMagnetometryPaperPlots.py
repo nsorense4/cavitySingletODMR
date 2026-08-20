@@ -190,6 +190,11 @@ def microwaveDetuning3(f, gamma, f0, amp, offset):
         lorentzian(f, f0 -  2*hyperfine, gamma) +
         lorentzian(f, f0 +  2*hyperfine, gamma) + offset
     )
+def microwaveZeroField(f, gamma, f0, amp, offset, zeroField):
+        return amp * (
+            lorentzian(f, f0 -  zeroField, gamma) +
+            lorentzian(f, f0 +  zeroField, gamma) + offset
+        )
 def microwaveDetuning1(f, gamma, f0, amp, offset):
     return amp * (
         lorentzian(f, f0, gamma) +
@@ -3531,7 +3536,7 @@ def plotZeroFieldODMR(saveBool = False):
     fig, ax = plot_custom(
        PRQuantumWidthHalf*0.6, 0.3*PRQuantumWidthFull,
        r"$\omega_{\text{MW}}/2\pi$ (MHz)",
-       r'$\Delta T$ ($\times10^{-4}$)',
+       r'$\Delta T$ ($\times10^{-3}$)',
        labelPadX = 4, labelPadY = 6, commonY = False, commonX = True, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
        nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize-1, numsize=numfontsize-1,
@@ -3542,40 +3547,41 @@ def plotZeroFieldODMR(saveBool = False):
     deltaT, freqsODMR, power = loadODMRDeltaT(filePath)
     f = freqsODMR*1e-6-2870
 
+    # load the change in transmission
     idx = 9
-    signalXZero = -np.mean(deltaT[:, idx, 400:450], 1)*10000*2 # peak to p2p
+    zeroFieldDeltaT = -np.mean(deltaT[:, idx, 400:450], 1)*1000*2 # peak to p2p
     power = np.mean(power[:, idx], 0)
-    print(power)
-    ax.plot(f, signalXZero, color=colorBlue, lw=0.2/0.3528)
-    ax.scatter(f, signalXZero, color=colorDarkBlue, marker = '.', s = 4, edgecolors='none', zorder = 10)
+    # plot the zero field data
+    ax.plot(f, zeroFieldDeltaT, color=colorBlue, lw=0.2/0.3528)
+    ax.scatter(f, zeroFieldDeltaT, color=colorDarkBlue, marker = '.', s = 4, edgecolors='none', zorder = 10)
 
+    # plot the bias field signal
     filePath = filepathODMR+ filenameODMR4p2umBiasLI1
-    deltaT, freqsODMR, _ = loadODMRDeltaT(filePath, scaleFactor = 1e4)
+    deltaT, freqsODMR, _ = loadODMRDeltaT(filePath, scaleFactor = 1e3)
     f = freqsODMR*1e-6-2776.76-30
 
     signalX = -np.mean(deltaT[:, 460:540], 1)*2 # peak to p2p
     ax.scatter(f, signalX, color=colorDarkBlue, marker = '.', s = 4, edgecolors='none', zorder = 10)
 
-    p0 = [nuOpt*1.05, -29.9e6, 0.145*10, 0]
-    popt, pcov = curve_fit(microwaveDetuning3, f*1e6, signalX, p0=p0)
+    p0 = [nuOpt*1.05, -29.9e6, 0.145*10, 0] # initial guess
+    popt, pcov = curve_fit(microwaveDetuning3, f*1e6, signalX, p0=p0) # fitted parameters
     perr = np.sqrt(np.diag(pcov))
     print('Fitted linewidth MHz: ', popt[0]/1e6, ' pm ', perr[0]/1e6)
 
-    # FLAGGED, not yet resolved: this plots p0 (the curve_fit initial guess),
-    # not popt (the actual fit result) -- compare against
-    # microwaveDetuning3(f*1e6, *popt) before relying on this figure.
-    f = np.linspace(-40, -20, 1000)
-    signal = microwaveDetuning3(f*1e6, nuOpt*1.05, -29.9e6, 0.145*10, 0)*2 # peak to p2p
-    ax.plot(f, signal, color=colorBlue, lw=0.2/0.3528)
+    fCont = np.linspace(-40, -20, 1000)
+    signal = microwaveDetuning3(fCont*1e6, nuOpt*1.05, -29.9e6, 0.145, 0)*2 # peak to p2p
+    signal = microwaveDetuning3(fCont*1e6, *popt) # peak to p2p
+    ax.plot(fCont, signal, color=colorBlue, lw=0.2/0.3528)
 
     fmin = -40
     fmax = 15
     Tmin = 0
-    Tmax = np.max(signalXZero)
+    Tmax = np.max(zeroFieldDeltaT)
     ax = makeTopLeftSpinesInvisible(ax, xlim=(fmin, fmax), ylim=(Tmin, Tmax),
-                                    xticks=[-29.9, 0], yticks=[Tmin, np.max(signal), Tmax])
+                                    xticks=[-29.9, 0], yticks=[Tmin, np.max(signal), Tmax],
+                                    limScale = 0.08, limScaleY = 0.05)
     ax.set_xticklabels([rf"${val:.0f}$" for val in [2777, 2870]])
-    ax.set_yticklabels([rf"${val:.1f}$" for val in ax.get_yticks()])
+    ax.set_yticklabels([rf"${val:.2f}$" for val in ax.get_yticks()])
 
     if saveBool:
         fig.savefig(
@@ -3585,95 +3591,72 @@ def plotZeroFieldODMR(saveBool = False):
     plt.show()
     
 def plotWideTransmissionAndSignal(saveBool = False):
+    """Wide-wavelength transmission and ODMR contrast vs wavelength, with a multi-mode microdisk theory overlay."""
     fig, axArr = plot_custom(
-       PRQuantumWidthHalf*0.45, 0.3*PRQuantumWidthFull, 
-       r"$\lambda$ (nm)", 
+       PRQuantumWidthHalf*0.45, 0.3*PRQuantumWidthFull,
+       r"$\lambda$ (nm)",
        [r'$T$ (au)',r'$\Delta T$ ($\times 10^{-4}$)'],
        labelPadX = 4, labelPadY = 8, commonY = False, commonX = True, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
        nrow = 2, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize-1, numsize=numfontsize-1,
-       widthBool =True, widthRatios = [1], heightRatios = [1,2] 
+       widthBool =True, widthRatios = [1], heightRatios = [1,2]
     )
-    lw = 1
-    
-    # filePathParams = 'C:/Users/nicho/OneDrive - University of Calgary/BarclayLab File Depot/Project Files/DNV Near IR Analysis/fittedData/4.4um_0_1044nm_fit_highQ.mat'
+
+    lambmin = 1040
+    lambmax = 1041.5
+
+    # --- Panel 0 (top): wide transmission sweep, baseline-subtracted and peak-normalized ---
     filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1030_1070nm_5nmps_averaged_norm.mat'
-    filePathAbs =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260129/ODMR_20260129_CW__16_12dBAtt_4.2um_0_1__2.7768GHz_0MHz_001.mat'
     data = loadmat(filePath, squeeze_me=True)
-    dataAbs = loadmat(filePathAbs, squeeze_me=True)
-    
+
     W = data['W']
     TOut = data['TOut']-0.03
     TOut /= TOut.max()
-    
-    
-    lambmin = 1040
-    lambmax = 1041.5
-    
+
     filt = np.logical_and(W< lambmax, W>lambmin)
-    skip = 1
     W= W[filt]
     TOut= TOut[filt]
-    # TOut /= -0.007*(W-1041.2)**2+1
-    skip = 1
-    # axArr[0].plot(W[1::skip], TOut[1::skip], lw = 0.15/0.3528, color = colorDarkRed)
-    axArr[0].scatter(W[1::skip], TOut[1::skip], edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkRed)
-    
-    dataAbs = dataAbs['data']
+    # [1:] drops the first (bad) point of the sweep
+    axArr[0].scatter(W[1:], TOut[1:], edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkRed)
+
+    # --- Panel 1 (bottom): ODMR absorption contrast vs wavelength at a fixed MW frequency ---
+    filePathAbs =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260129/ODMR_20260129_CW__16_12dBAtt_4.2um_0_1__2.7768GHz_0MHz_001.mat'
+    dataAbs = loadmat(filePathAbs, squeeze_me=True)['data']
     W_nm = dataAbs['laserWLsRead'].item()*1e9
     S_V = dataAbs['signal'].item()*2 # peak amplitude to p2p
-    DC_V = dataAbs['contrast'].item() 
-    C = S_V/DC_V;   
-    deltaT = S_V/np.max(DC_V);
+    DC_V = dataAbs['contrast'].item()
+    deltaT = S_V/np.max(DC_V)
     power = dataAbs['powerIn'].item()
-    
-    
-    print(power)
+
     filt = np.logical_and(W_nm< lambmax, W_nm>lambmin)
-    skip = 1
     W_nm= W_nm[filt]
-    S_V= S_V[filt]
     deltaT = deltaT[filt]
     power = power[filt]
-    
+
+    # normalize out the per-point drive power to get a comparable contrast trace
     contrast = -deltaT/power*np.max(power)*1e4
-    
-    # axArr[1].plot(W_nm, contrast, lw = 0.15/0.3528, color = colorDarkBlue)
     axArr[1].scatter(W_nm-0.07, contrast, edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkBlue)
-    
-    
-    P_in = 20e-6 * np.sqrt(etaFibreIR) * np.array([1, 1, 1,1,1,1])
+
+    # --- Multi-mode microdisk coupled-mode theory overlay ---
+    # For each cavity mode near this wavelength range, calcDeltaMicrodiskReturnT
+    # returns its transmission (TMean) and ODMR contrast (DeltaTFit) vs
+    # detuning from that mode; sum the modes' contributions across the shared
+    # wavelength grid lambArr to get the overlaid theory curves yTop/yBot.
     lambModes = np.array([1040.74, 1042.98, 1047.12, 1048.62, 1057.6, 1061.29])
-    bwGHzArr = [150,150,100,100,200,100]
-    
+    t = np.array([0.98,0.947,0.69,0.9,1,0.93])  # per-mode transmission on/off-resonance scale factor
     Veff = calcVeff()
-    g = np.array([5e9, 5.8e9, 20e9, 1e9, 0 ,0])
-    t = np.array([0.98,0.947,0.69,0.9,1,0.93])
-    phi = np.array([-0.057,0.04,-0.04,-0.4,0,0.3])
-    tau =t*np.exp(1j* phi)
-    # kex1 = nuModes/np.array([2.6e4])
-    kex1 = np.array([1.1e10,48e9,3.5e9,1.5e9,1.1e10,1.2e9])
-    kex2 = kex1
-    kex2[1] = 36e9
-    ki1 = np.array([4e10,15e9])
-    ki2 = ki1
-    ki2[1] = 13.6e9
-    
-        
-    numin = -300
-    numax = 300
+    gradScale = np.array([1,1,1,10,1,2])  # per-mode weighting of the dispersive (gradient) contrast term
     lambArr = np.linspace(1040e-9, 1041.5e-9, 501)
-    
-    
-    # scale = np.array([1,1.6,1,1,1,0.05])*0 + 1e4
-    gradScale = np.array([1,1,1,10,1,2])
-    # deltaOff = np.array([0,8,-5,1,1,-5])
-    P_in[1] = 5e-7
-    
+
     yTop = lambArr * 0
     yBot = lambArr * 0
     for i, lamb in enumerate(lambModes):
-        # popt = [kex1[i], kex2[i], ki1[i], ki2[i], g[i], t[i], phi[i],P_in.mean(), 1]     
+        # popt = [kex1, kex2, ki1, ki2, g, tau, phi, P_in, scale], matching
+        # calcDeltaMicrodiskReturnT's signature.
+        # NOTE: only mode 0 (i==0) has its own individually fitted popt below;
+        # modes 1-5 all share the SAME hardcoded popt (the "else" branch).
+        # Confirm whether that's a deliberate placeholder/approximation or
+        # whether the other 5 modes still need their own fits.
         if i == 0:
            popt= [ 1.17471071e+10,  1.13956599e+10,  4.21688689e+10,  4.20331073e+10,
               4.59152053e+09 , 8.86694080e-01, -5.64339617e-02 , 8.90467804e-06,
@@ -3684,27 +3667,23 @@ def plotWideTransmissionAndSignal(saveBool = False):
             1
             ]
         print('Qcav: ', c_const/lamb/1e-9/popt[2])
-                
-    
+
         deltaOmegaGHz = (c_const/lambArr-c_const/lamb/1e-9)*1e-9
         DeltaTFit, TMean,kabs0, kabs1, alphaOff, alphaOn= calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, printBool = True, Veff =Veff)
         TMean/= TMean.max()
-        P_det = P_in.mean()*TMean*np.sqrt(etaFibreIR)*etaPostFibre
-        
+
+        # dispersive lineshape contribution (derivative of transmission), added
+        # on top of the direct absorptive contrast DeltaTFit
         gradient = np.gradient(TMean*t[i], deltaOmegaGHz)
         yTop += (TMean-1)*t[i]
         yBot += DeltaTFit*1e4+ gradScale[i]*gradient
-        
-    axArr[0].plot(lambArr/1e-9, (yTop+1)*0.98, lw = 0.2/0.3528, color = colorLightRed)
-    
-    # axx[i,0].plot(deltaOmegaGHz, gradient, lw = 0.2/0.3528, color = colorRed)
 
+    axArr[0].plot(lambArr/1e-9, (yTop+1)*0.98, lw = 0.2/0.3528, color = colorLightRed)
     axArr[1].plot(lambArr/1e-9, yBot, lw = 0.2/0.3528, color = colorBlue)
-        # print('Scale: ', popt[-1])
-    
-    
+
     plt.tight_layout()
-    
+
+    # --- Axis formatting: shared x (wavelength), separate hardcoded y ranges per panel ---
     for i,ax in enumerate(axArr):
         ax.set_xlim([lambmin-0.2,lambmax])
         ax.spines['bottom'].set_bounds(lambmin, lambmax)
@@ -8049,8 +8028,8 @@ if __name__ == "__main__":
 
     ## figure 5
     # plotNarrowTransmissionPaper(saveBool)
-    plotZeroFieldODMR(saveBool)
-    # plotWideTransmissionAndSignal(saveBool)
+    # plotZeroFieldODMR(saveBool)
+    plotWideTransmissionAndSignal(saveBool)
 
     ## figure 6
     # plotODMRFittingCurves(saveBool = saveBool)
