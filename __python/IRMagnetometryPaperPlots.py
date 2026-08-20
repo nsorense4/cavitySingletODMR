@@ -3774,7 +3774,7 @@ def plotODMRFittingCurves(saveBool = False):
 def plotNoiseFigure(saveBool = False):
     """Magnetic noise PSD spectrum and Allan deviation from a fixed-field CW ODMR time trace."""
     fig, axArr = plot_custom(
-       PRQuantumWidthHalf*1.5, PRQuantumWidthHalf*0.6,
+       PRQuantumWidthHalf*1.55, PRQuantumWidthHalf*0.6,
        [r"frequency, $f$ (Hz)", r"averaging time, $t$ (s)"],
        [r"magnetic noise (nT/$\sqrt{\text{Hz}}$)",r"Allan deviation, $\sigma_a$ (nT)"]
        , labelPadX = 5, labelPadY = 5, commonY = False, commonX = False, wSpaceSetting=0, hSpaceSetting = 0,
@@ -3882,6 +3882,7 @@ def plotNoiseFigure(saveBool = False):
     ax.set_yticklabels([r'$100$', r'$1000$', r'$12.8$', r''])  # last tick label intentionally blank
     xticksMinor = ax.get_xticks(minor = True)
     ax.set_xticks(xticksMinor[np.logical_and(xticksMinor >= 1e-2, xticksMinor <= xlimAD)], minor = True)
+    ax.set_xticks([1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3])
 
     fig.subplots_adjust(wspace=0.4)
     fig.subplots_adjust(hspace=0.35)
@@ -3895,6 +3896,7 @@ def plotNoiseFigure(saveBool = False):
 
 #%%% Figure 7
 def plotDetuningExample(saveBool = False):
+    """Parameter-definitions figure: transmission and ODMR contrast (vs optical and MW detuning) with a microdisk-model fit, plus a printed sensitivity estimate."""
     fig, axx = plot_custom(
        PRQuantumWidthFull*1/4, PRQuantumWidthHalf*1, 
        [ r'',r"$\Delta\omega_{\text{opt}}/2\pi$ (GHz)", r"$\Delta \omega_{\text{MW}}/2\pi$ (MHz)"], 
@@ -3907,11 +3909,10 @@ def plotDetuningExample(saveBool = False):
     
     
     filePath = filepathTransmission + filenameTransmission4p2um
-    
-    #%%%% Plot transmission data 
+
+    #%%%% Plot transmission data
     W_nm, DeltanuGHz, TOut = loadAndFilterTransmissionData(filePath)
-    skip = 1
-    axx[0].scatter(DeltanuGHz[1::skip], TOut[1::skip], edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkRed)
+    axx[0].scatter(DeltanuGHz[1:], TOut[1:], edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkRed)
     
     filePath = filepathODMR+ filenameODMR4p2umBiasLI1
     
@@ -3936,8 +3937,6 @@ def plotDetuningExample(saveBool = False):
     y = DeltaT_Smooth[:, idx]*2 # peak to p2p
     axx[1].scatter(x[1::skip], y[1::skip]*scale, edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkBlue)
     DeltaTMaxExp = y.max()*scale
-    
-    (Tmin, Tmax) = axx[0].get_ylim()
 
     #%%%% Plot transmission fit
     
@@ -3960,42 +3959,37 @@ def plotDetuningExample(saveBool = False):
     deltaOmegaGHzMax = deltaOmegaGHz.max()
     
     #%%%% Plot change in transmission fit with wavelength
+    # p0 here is a known-good microdisk parameter set (not fit in this
+    # function) -- popt is just an alias for it, kept for readability below
     P_in *= np.sqrt(etaFibreIR)
     p0 = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in.mean(), 1]
     DeltaTFit, TMean = calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *p0, Veff =Veff)
-    popt=p0    
-    # print('popt: ', popt)
-    
-    # DeltaTFit, TMean,kabs0, kabs1= calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, printBool = True, Veff =Veff)
+    popt=p0
+
     TMean/= TMean.max()
     P_det = P_in.mean()*TMean*np.sqrt(etaFibreIR)*etaPostFibre
-    
+
+    # intracavity photon number / equivalent intensity at the drive power used
     a = np.abs(calcIntracavityField(popt[0], popt[0] + popt[2], popt[1], popt[1]+ popt[3], Delta, popt[4]))
     NcavMax = calcPhotonsInCavity(a.max(), P_in.mean())
     print('Pin: ', P_in.mean())
     print('lambda0: ', lamb0)
-    # print('Max Ncav: ', NcavMax)
     Imax = NtoI1042(NcavMax)
     print('Max intensity MW/cm^2: ', Imax)
-    
-    # kabs0 = calcEnergyLossRate(nd, alpha0)
-    # kabs1 = calcEnergyLossRate(nd, alpha1)
+
+    # compare the measured vs modeled change in absorption coefficient
+    # between MW-on and MW-off, as a consistency check on the fit
     skip = 106
     Deltak = DeltaT2Deltak(y[1::skip], np.abs(tau), kex1, kex1 + ki1)
-    # print('Deltak MHz: ', Deltak.max()/1e6)
     print('delta alpha /m: ', kappa2alpha(Deltak.max()*2*np.pi))
-    
+
     DeltaT0, T0, kabs0, kabs1, alphaOff, alphaOn =calcDeltaMicrodiskReturnT(np.array([0]), *popt, printBool = True, Veff =Veff)
-    
-    # print('Deltak model MHz:', (kabs0- kabs1)/-1e6 )
-    # print('Delta alpha model /m: ', -kappa2alpha((kabs0- kabs1)*2*np.pi))
     print('Delta alpha model /m: ', alphaOn- alphaOff)
     print('alpha off model /m: ', kappa2alpha((kabs0)*2*np.pi))
-    
+
     [kex1, kex2, ki1, ki2, g, tauabs, phi, pin, scaleNew] = popt
     tau = 1*np.exp(1j*phi)
-    
-    
+
     #%%%% Predict transmission based on change in transmission
     axx[0].plot(deltaOmegaGHz, TMean, lw = 0.2/0.3528, color = colorRed)
     
@@ -4006,10 +4000,7 @@ def plotDetuningExample(saveBool = False):
     fmax = fBW
     f = np.linspace(fmin, fmax, 1000)
     amp = DeltaTMaxExp/scale * 1e4*0.75
-    TMW = microwaveDetuning3(f, nuOpt, 0, amp, 0)
-    TMWsingle1 = lorentzianSingleWithAmplitude(f, nuOpt, 0, amp/2.8)
-    
-    
+
     #%%%% Plot change in transmission with microwave detuning
     idx = 500
     N = 30
@@ -4031,73 +4022,67 @@ def plotDetuningExample(saveBool = False):
     C = (TMax-TMin)*1e-4/TMean.min()
     dC = C*perr[2]/popt[2]
     print('C:', C , ' pm ', dC)
-    # print('Tmax/Tmin:', Tmax/Tmin)
     print('Delta T:', (TMax-TMin)*1e-4)
-        
-    
-    etaSNL = calcSensitivityCW(popt[0], C, P_det.min(), lamb_s)
 
+    # shot-noise-limited field sensitivity from the fitted contrast/linewidth,
+    # with uncertainty propagated from the fit
+    etaSNL = calcSensitivityCW(popt[0], C, P_det.min(), lamb_s)
     detaSNL = calcSensitivityCWUncertainty(popt[0], perr[0], C, dC, P_det.min(), P_det.min()*0.2, lamb_s)
-    
+
     print('Pdet', P_det.min())
-    # print('photon flux /1e10:', P_det.min()/(hbar*omegas)/1e10)
     print('eta nT:', etaSNL*1e9, ' pm ', detaSNL*1e9)
     
     axx[1].plot(deltaOmegaGHz, DeltaTFit*scale, lw = 0.2/0.3528, color = colorBlue)
-    
+
     #%%%% Plot change in transmission fit with MW det 2
     TMWsingle1 = lorentzianSingleWithAmplitude(f, nuOpt, 0, amp)
     axx[2].plot(f/1e6, TMWsingle1, lw = 0.2/0.3528, color = 'k', linestyle = '--')
     TMW = microwaveDetuning3(f, nuOpt, 0, amp, 4.02066788e-01)
-    
+
     axx[2].plot(f/1e6, TMW, lw = 0.2/0.3528, color = colorBlue)
-    
+
     #%%%% Set plot settings
-    ax = axx[0]
+    # Panel 0 (transmission): shares its x-axis with panel 1 below, so its
+    # own bottom spine/ticks stay hidden. tight_layout() is called fresh
+    # before each panel below (matching the original), since it accounts for
+    # tick-label sizes at call time and later panels' relabeling can change
+    # the required margins.
     plt.tight_layout()
+    ax = axx[0]
     (Tmin, Tmax) = axx[0].get_ylim()
-    ax.set_xlim([deltaOmegaGHzMin-40,deltaOmegaGHzMax])
-    ax.spines['bottom'].set_bounds(deltaOmegaGHzMin, deltaOmegaGHzMax)
-    
-    ax.set_ylim([Tmin,1.02])
-    ax.spines['left'].set_bounds(Tmin, 1)
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(deltaOmegaGHzMin, deltaOmegaGHzMax), ylim=(Tmin, 1),
+                                    yticks=[Tmin, 1])
+    ax.set_xlim([deltaOmegaGHzMin-40, deltaOmegaGHzMax])
+    ax.set_ylim([Tmin, 1.02])
     ax.spines["bottom"].set_visible(False)
-    # ax.set_xticks([-200, 200])
-    ax.set_yticks([Tmin,1])
+    ax.set_xticks([])
     ax.set_yticklabels([rf"${val:.2f}$" for val in ax.get_yticks()])
     ax.yaxis.set_label_coords(-0.15, 1.1)
-    ax.set_xticks([])
-    
-    ax = axx[1]
+
+    # Panel 1 (ODMR change in transmission vs optical detuning)
     plt.tight_layout()
+    ax = axx[1]
     (Tmin, Tmax) = axx[1].get_ylim()
     Tmax = np.max(y[1::skip]*scale)
-    ax.set_xlim([deltaOmegaGHzMin-40,deltaOmegaGHzMax])
-    ax.spines['bottom'].set_bounds(deltaOmegaGHzMin, deltaOmegaGHzMax)
-    
-    
-    ax.set_ylim([Tmin-0.1,Tmax+0.04])
-    ax.spines['left'].set_bounds(Tmin, Tmax)
-    # ax.spines["bottom"].set_visible(False)
-    ax.set_yticks([Tmin,Tmax])
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(deltaOmegaGHzMin, deltaOmegaGHzMax), ylim=(Tmin, Tmax),
+                                    xticks=[-200, 200], yticks=[Tmin, Tmax])
+    ax.set_xlim([deltaOmegaGHzMin-40, deltaOmegaGHzMax])
+    ax.set_ylim([Tmin-0.1, Tmax+0.04])
     ax.set_yticklabels([rf"${val:.2f}$" for val in ax.get_yticks()])
     ax.yaxis.set_label_coords(-0.15, 1.1)
-    ax.set_xticks([-200, 200])
-    
-    ax = axx[2]
+
+    # Panel 2 (change in transmission vs MW detuning); Tmax carries over
+    # (scaled x10) from panel 1 to keep the two panels' y-ranges related
     plt.tight_layout()
-    # (Tmin, Tmax) = axx[2].get_ylim()
-       
+    ax = axx[2]
     ax.yaxis.set_label_coords(-0.18, 1.1)
-    
-    ax.set_xlim([fmin/1e6-0.7,fmax/1e6])
-    ax.spines['bottom'].set_bounds(fmin/1e6,fmax/1e6)
     Tmax *= 10
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(fmin/1e6, fmax/1e6), ylim=(0, Tmax),
+                                    yticks=[0, 1, Tmax])
+    ax.set_xlim([fmin/1e6-0.7, fmax/1e6])
     ax.set_ylim([-0.3, Tmax+0.2])
-    ax.spines['left'].set_bounds(0,Tmax)
-    ax.set_yticks([0, 1, Tmax])
     ax.set_yticklabels([rf"${val:.1f}$" for val in ax.get_yticks()])
-    
+
     for ax in axx:
         ax.spines["right"].set_visible(False)
         ax.spines["top"].set_visible(False)
@@ -4124,10 +4109,7 @@ def plotDetuningExample(saveBool = False):
     
     
     fig.subplots_adjust(hspace=0.9)
-    
-    TMWsingle1 = lorentzianSingleWithAmplitude(f, nuOpt, 0, amp)
-    TMW = microwaveDetuning3(f, nuOpt, 0, amp, 0)
-    
+
     if saveBool:
         fig.savefig(
             (_FIGURES_DIR + "/") + "parameterDefinitions.svg", dpi=300, bbox_inches="tight",transparent=True
@@ -7936,10 +7918,10 @@ if __name__ == "__main__":
 
     ## figure 6
     # plotODMRFittingCurves(saveBool = saveBool)
-    plotNoiseFigure(saveBool = saveBool)
+    # plotNoiseFigure(saveBool = saveBool)
 
     # figure 7
-    # plotDetuningExample(saveBool)
+    plotDetuningExample(saveBool)
     # plotMicrodiskTheorySensitivityDeltaTvsMWDet(saveBool = saveBool)
     # plotMicrodiskTheorySensitivitykcavkex(saveBool = saveBool)
 
