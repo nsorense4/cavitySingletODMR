@@ -126,10 +126,10 @@ simple_params = dict(
 )
 
 #%% data files
-filepathTransmission = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/'
+filepathTransmission = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/'
 filenameTransmission4p2um = '4.2um_0/20260202/1040_1042nm_1nmps_averaged_norm.mat'
 
-filepathODMR =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/'
+filepathODMR =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/'
 filenameODMR4p2umBiasLI1 =  '20260128/ODMR_20260128_CW__16_14dBAtt_4.2um_0_1_2.7765GHz_10MHz_003.mat'
 filenameODMR4p2umBiasLI2 =  '20260201/ODMR_20260201_CW__16_12dBAtt_4.2um_0_1__2.7767GHz_16MHz_001.mat'
 filenameODMR4p4umBiasLI1 =  '20260205/ODMR_20260205_CW__16_12dBAtt_4.4um_0_1__2.7767GHz_10MHz_006.mat'
@@ -655,6 +655,22 @@ def loadODMRData(filePath, lamb0nm = 1042, lambbwnm = 2, f0GHz = 2870,
     
     return W_nm, S_V, DeltaT, C, P_in, DeltanuGHz, DeltaW_nm, f, DC_V
 
+def loadODMRDeltaT(filePath, scaleFactor = 1):
+    """Load an ODMR .mat file's raw MW-frequency-sweep trace (no wavelength filtering).
+
+    Returns (deltaT, freqsODMR, power) where deltaT = signal/max(signal/contrast),
+    scaled by scaleFactor. For picking out one wavelength band from a
+    wavelength sweep instead, use loadODMRData.
+    """
+    data = loadmat(filePath, squeeze_me=True)['data']
+    S_V = np.squeeze(data['signal'].item())
+    C = np.squeeze(data['contrast'].item())
+    DC_V = S_V/C
+    deltaT = S_V/np.max(DC_V)*scaleFactor
+    freqsODMR = data['freqsODMR'].item()
+    power = data['powerIn'].item()
+    return deltaT, freqsODMR, power
+
 #%% general functions
 
 def aMicrodiskOnRes(ka, ki, kex):
@@ -914,12 +930,12 @@ def plotVisibleSpectrometerData(saveBool = False):
        nrow = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
        widthBool =False
     )
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsOpticalSpectra/B14/Spectrometer_Data/'
+    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsOpticalSpectra/B14/Spectrometer_Data/'
     filenames = ['PL_20240702_fine_grating_550nm_900nm_greenLaser_noMW_noTelecom.csv']
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsOpticalSpectra/DNV-QG3-B14/Spectrometer_Data/'
+    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsOpticalSpectra/DNV-QG3-B14/Spectrometer_Data/'
     filenames = ['redo_PL_20240702_fine_grating_550nm_900nm_greenLaser_MW_noTelecom.csv',
                  'redo_PL_20240702_fine_grating_550nm_900nm_greenLaser_noMW_noTelecom.csv']
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsOpticalSpectra/DNV-QG3-B14/Spectrometer_Data/greenLaserMicrowaveTHG/'
+    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsOpticalSpectra/DNV-QG3-B14/Spectrometer_Data/greenLaserMicrowaveTHG/'
     filenames = ['PL_20240702_fine_grating_550nm_900nm_greenLaser_noMW_noTelecom_noT.csv',
                  'PL_20240702_fine_grating_550nm_900nm_greenLaser_MW_noTelecom_noTHG.csv']
 
@@ -1000,12 +1016,12 @@ def plotVisibleSpectrometerDiffData(saveBool = False):
        nrow = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
        widthBool =False
     )
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsOpticalSpectra/B14/Spectrometer_Data/'
+    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsOpticalSpectra/B14/Spectrometer_Data/'
     filenames = ['PL_20240702_fine_grating_550nm_900nm_greenLaser_noMW_noTelecom.csv']
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsOpticalSpectra/DNV-QG3-B14/Spectrometer_Data/'
+    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsOpticalSpectra/DNV-QG3-B14/Spectrometer_Data/'
     filenames = ['redo_PL_20240702_fine_grating_550nm_900nm_greenLaser_MW_noTelecom.csv',
                  'redo_PL_20240702_fine_grating_550nm_900nm_greenLaser_noMW_noTelecom.csv']
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsOpticalSpectra/DNV-QG3-B14/Spectrometer_Data/greenLaserMicrowaveTHG/'
+    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsOpticalSpectra/DNV-QG3-B14/Spectrometer_Data/greenLaserMicrowaveTHG/'
     filenames = ['PL_20240702_fine_grating_550nm_900nm_greenLaser_noMW_noTelecom_noT.csv',
                  'PL_20240702_fine_grating_550nm_900nm_greenLaser_MW_noTelecom_noTHG.csv']
 
@@ -1080,7 +1096,7 @@ def plotIRSpectrometerData(saveBool = False):
        nrow = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
        widthBool =False
     )
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsOpticalSpectra/B14/B14_4p2_IR_Emission_Spectrum/'
+    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsOpticalSpectra/B14/B14_4p2_IR_Emission_Spectrum/'
     filenameBack = 'MW_OFF_1000-1400_100s_Exposure_150umSlit_Spectra_Bypass-FiberPL.dat'
     filenameOn = 'MW_ON_1000-1400_100s_Exposure_150umSlit_Spectra.dat'
     filenameOff = 'MW_OFF_1000-1400_100s_Exposure_150umSlit_Spectra.dat'
@@ -1160,7 +1176,7 @@ def plotIRSpectrometerDiffData(saveBool = False):
        nrow = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
        widthBool =False
     )
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsOpticalSpectra/B14/B14_4p2_IR_Emission_Spectrum/'
+    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsOpticalSpectra/B14/B14_4p2_IR_Emission_Spectrum/'
     filenameBack = 'MW_OFF_1000-1400_100s_Exposure_150umSlit_Spectra_Bypass-FiberPL.dat'
     filenameOn = 'MW_ON_1000-1400_100s_Exposure_150umSlit_Spectra.dat'
     filenameOff = 'MW_OFF_1000-1400_100s_Exposure_150umSlit_Spectra.dat'
@@ -1588,7 +1604,7 @@ def plotNarrowTransmission(saveBool = False):
     lw = 1
     
     # filePathParams = 'C:/Users/nicho/OneDrive - University of Calgary/BarclayLab File Depot/Project Files/DNV Near IR Analysis/fittedData/4.4um_0_1044nm_fit_highQ.mat'
-    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1040_1042nm_1nmps_averaged_norm.mat'
+    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1040_1042nm_1nmps_averaged_norm.mat'
     
     
     data = loadmat(filePath, squeeze_me=True)
@@ -1675,8 +1691,8 @@ def plotWideTransmission(saveBool = False):
     lw = 1
     
     # filePathParams = 'C:/Users/nicho/OneDrive - University of Calgary/BarclayLab File Depot/Project Files/DNV Near IR Analysis/fittedData/4.4um_0_1044nm_fit_highQ.mat'
-    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1030_1070nm_5nmps_averaged_norm.mat'
-    filePathAbs =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260129/ODMR_20260129_CW__16_12dBAtt_4.2um_0_1__2.7768GHz_0MHz_001.mat'
+    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1030_1070nm_5nmps_averaged_norm.mat'
+    filePathAbs =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260129/ODMR_20260129_CW__16_12dBAtt_4.2um_0_1__2.7768GHz_0MHz_001.mat'
     data = loadmat(filePath, squeeze_me=True)
     dataAbs = loadmat(filePathAbs, squeeze_me=True)
     
@@ -1956,7 +1972,7 @@ def plotZeemanSplitting(saveBool = False):
 def plotSpinContrastMechanisms(saveBool = False):
    
     fig, ax = plot_custom(
-       PRQuantumWidthHalf*0.65, 0.37*PRQuantumWidthHalf, 
+       PRQuantumWidthHalf*0.5, 0.7*PRQuantumWidthHalf, 
        r"$\Delta \omega/2\pi$ (MHz)", 
        r'',
        labelPadX = 3, labelPadY = 8, commonY = False, commonX = False, wSpaceSetting=0,
@@ -2013,7 +2029,7 @@ def plotSpinContrastMechanisms(saveBool = False):
     
     min_x_value = -10
     max_x_value = 20
-    deltay = 0.1
+    deltay = 0.12
     min_y_value = 1 - deltay
     max_y_value = 1 + deltay
     
@@ -2023,62 +2039,15 @@ def plotSpinContrastMechanisms(saveBool = False):
     
     lw = 0.2/0.3528
     
-    # ax.plot(detsNew[filt], pGreen[filt], 'g', lw = lw)
     ax.plot(detsNew[filt], pPL[filt], 'r', lw = lw)
     ax.plot(dets[filt], pIRPLT[filt], color = 'k', lw = lw)
     ax.plot(dets[filt], (pIRPLSingle[filt]-1)/3.3+1, color = 'grey', linestyle = '--', lw = lw)
-    # ax.plot(dets, pIRPL, color = 'k', lw = lw, linestyle = '--', zorder = -1)
     ax.plot(dets[filt], pIRAbs[filt], colorDarkRed, lw = lw)
-    
-    
-    # ax.plot(40-detsNew[filt], pPL[filt], 'r', lw = lw)
-    # ax.plot(40-detsNew[filt], pIRPLT[filt], color = 'k', lw = lw)
-    # ax.plot(40-detsNew[filt], (pIRPLSingle[filt]-1)/3.3+1, color = 'grey', linestyle = '--', lw = lw)
-    # # ax.plot(dets, pIRPL, color = 'k', lw = lw, linestyle = '--', zorder = -1)
-    # ax.plot(40-detsNew[filt], pIRAbs[filt], colorDarkRed, lw = lw)
     
 
     ax = makeTopLeftSpinesInvisible(ax, xlim=(min_x_value, max_x_value), ylim=(min_y_value, max_y_value), 
                                     xticks=[min_x_value, 0, max_x_value], yticks=[1],limScale=0.05, limScaleY=0.15)
-    # ax.set_xticks([min_x_value, 0, max_x_value])
-    # ax.set_yticks([1])
-    # # ax.set_yticklabels([r'1 + $C$', r'$1$', r'1 - $C$'])
 
-    # rangex = max_x_value - min_x_value
-    # rangey = max_y_value - min_y_value
-
-    # limScale = 0.06
-    # limScaley = 0.1
-    # limScaleMin = rangey*limScaley
-    # limScaleMax = rangey*limScaley
-
-    # ax.tick_params(
-    #     axis="x",
-    #     which="major",
-    #     labelsize=numfontsize,
-    #     zorder=1,
-    #     direction="in",
-    #     top="off",
-    #     colors='k'
-    # )
-
-    # ax.spines["right"].set_visible(False)
-    # ax.spines["top"].set_visible(False)
-    # ax.yaxis.set_ticks_position('left')
-    # ax.tick_params(axis='y', which='both', left=True, right=False)
-    # ax.tick_params(axis='x', which='both', top=False, bottom=True)
-
-
-    # ax.set_ylim([min_y_value - limScaleMin, max_y_value + limScaleMin])
-    # ax.set_xlim([min_x_value-1, max_x_value + rangex*limScale])
-
-    # ax.spines['bottom'].set_bounds(min_x_value,max_x_value)
-    # ax.xaxis.set_label_position("bottom")
-    # ax.xaxis.set_ticks_position('bottom')
-
-
-
-    # ax.spines['left'].set_bounds(min_y_value,max_y_value)
 
     plt.tight_layout()
     plt.show()
@@ -2408,7 +2377,7 @@ def solveSensitivityVaryIRPower(saveBool = False,
         nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
         widthBool =False, spineWidth = 0.15
     )
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/lab-analysis-software/barclay-lab/analysisScripts/ODMR/DNVODMR/CW_IR/'
+    directory = 'C:/users/nicho/OneDrive - University of Calgary/Documents/gitProjects/code/workProjects/barclay-lab/projects/cavityTripletODMR/CW_IR/__fits/'
     
     filenameFit = 'CW_ODMR_IR_fit_results.csv';
     filenameModel = 'CW_ODMR_IR_fit_models.csv';
@@ -2469,7 +2438,6 @@ def solveSensitivityVaryIRPower(saveBool = False,
         C = np.zeros([N_IR])
         M = rho_NV
         alpha0 = M*sigma_s
-        # print(alpha0)
         nu = np.zeros([N_IR])
         detunings = np.linspace(detuning - bw, detuning + bw, Npoints)
         
@@ -2672,9 +2640,6 @@ def solveSensitivityVaryIRPower(saveBool = False,
     ax.xaxis.set_label_position("bottom")
     ax.xaxis.set_ticks_position('bottom')
 
-
-
-    # ax.spines['left'].set_bounds(min_y_value,max_y_value)
     if saveBool:
         fig.savefig(
             (_FIGURES_DIR + "/") + "NaiveSensitivity.svg", dpi=300, bbox_inches="tight",transparent=True
@@ -2689,12 +2654,12 @@ def plotSensitivityRelation(saveBool = False,
                             A = 10e-6**2,
                             Larr = 0.1*np.array([1e-4,1e-2,1])):# 
     fig, ax = plot_custom(
-       PRQuantumWidthHalf*0.5, PRQuantumWidthHalf*0.6,  
+       PRQuantumWidthHalf*0.7, PRQuantumWidthHalf*0.6,  
         r"$Q_{\text{cav}}$", 
         r'',
         labelPadX = 3, labelPadY = 9 , commonY = False, commonX = True, wSpaceSetting=0,
         spineColor = 'black', tickColor = 'black', textColor = 'black',
-        nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize-1,
+        nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
         widthBool =False, spineWidth = 0.15
     )
     
@@ -2791,50 +2756,88 @@ def plotSensitivityRelation(saveBool = False,
 def plotSensitivityComparison(saveBool = False):
     """Compare shot-noise-limited sensitivity vs absorber length L across ideal-cavity, bulk, and microdisk geometries."""
     fig, ax = plot_custom(
-       PRQuantumWidthHalf, PRQuantumWidthHalf*0.6,
+       PRQuantumWidthHalf*0.8, PRQuantumWidthHalf*0.58,
         r"$L$ (m)",
-        r"$\eta\sqrt{A}$ (Tm/$\sqrt{\text{Hz}})$",
+        r"$\eta$ (au)",
         labelPadX = 3, labelPadY = 9 , commonY = False, commonX = True, wSpaceSetting=0,
         spineColor = 'black', tickColor = 'black', textColor = 'black',
-        nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize-1,
+        nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
         widthBool =False, spineWidth = 0.15
     )
+    
+    # figInset, axInset = plot_custom(
+    #    PRQuantumWidthHalf*0.55, PRQuantumWidthHalf*0.4,
+    #     r"",
+    #     r"",
+    #     labelPadX = 3, labelPadY = 9 , commonY = False, commonX = True, wSpaceSetting=0,
+    #     spineColor = 'black', tickColor = 'black', textColor = 'black',
+    #     nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize-1,
+    #     widthBool =False, spineWidth = 0.15
+    # )
 
-    LArr_m = np.logspace(-8, 0.5, 101)
+    LArr_m = np.logspace(-5, 0, 101)
     A = 1e-12  # sensor area used for all curves below
 
     # Ideal cavity (etalon): numeric optimum over mirror transmission Tm, and closed-form approximation
     etaDiamondIdealCavity = np.array([calcEtalonSensitivity(L, A) for L in LArr_m])
     etaDiamondIdealCavitySimp = np.array([calcEtalonSensitivitySimple(L, A) for L in LArr_m])
-    ax.plot(LArr_m, etaDiamondIdealCavity*np.sqrt(A), lw = 0.2/0.358, zorder = 10)
-    ax.plot(LArr_m, etaDiamondIdealCavitySimp*np.sqrt(A), lw = 0.2/0.358, zorder = 10)
+    ax.plot(LArr_m, etaDiamondIdealCavity*np.sqrt(A)/np.min(etaDiamondIdealCavity*np.sqrt(A)), lw = 0.2/0.358, color = colorLightRed, zorder = 10)
+    # axInset.plot(LArr_m, etaDiamondIdealCavity*np.sqrt(A), lw = 0.2/0.358, color = colorLightRed, zorder = 10)
+    # ax.plot(LArr_m, etaDiamondIdealCavitySimp*np.sqrt(A), lw = 0.2/0.358,color = colorDarkRed, linestyle = '--', zorder = 10)
 
     # Bulk sample, no cavity: full numeric, simplified, and linearized sensitivity
     etaBulk = np.array([calcBulkSensitivity(L, A) for L in LArr_m])
+    etamin = etaBulk.min()*np.sqrt(A)
     etaBulkSimple = np.array([calcBulkSensitivitySimple(L, A) for L in LArr_m])
     etaBulkLin = np.array([calcBulkSensitivityLin(L, A) for L in LArr_m])
-    ax.plot(LArr_m, etaBulk*np.sqrt(A), lw = 0.2/0.358)
-    ax.plot(LArr_m, etaBulkSimple*np.sqrt(A), lw = 0.2/0.358)
-    ax.plot(LArr_m, etaBulkLin*np.sqrt(A), lw = 0.2/0.358, color = 'k', linestyle = '--')
+    ax.plot(LArr_m, etaBulk*np.sqrt(A)/etamin, lw = 0.2/0.358, color = colorLightBlue, 
+            linestyle = '--', zorder = 10)
+    # axInset.plot(LArr_m, etaBulk*np.sqrt(A), lw = 0.2/0.358, color = colorLightBlue, 
+    #         linestyle = '--', zorder = 10)
+    ax.plot(LArr_m, etaBulkSimple*np.sqrt(A)/etamin, lw = 0.2/0.358, color = colorLightBlue, 
+            linestyle = '-', zorder = 10)
+    # axInset.plot(LArr_m, etaBulkSimple*np.sqrt(A), lw = 0.2/0.358, color = colorLightBlue, 
+    #         linestyle = '-', zorder = 10)
+    # axInset.plot(np.ones(2)/alpha, [1e-19, 1e-12], lw = 0.2/0.358, color = 'k', 
+    #         linestyle = ':', zorder = 0)
+    # ax.plot(LArr_m, etaBulkLin*np.sqrt(A), lw = 0.2/0.358, color = colorDarkBlue, linestyle = '--', zorder = 10)
 
     # Side-coupled microdisk cavity: closed-form approximation, optimized over coupling rate kex
     ki0 = alpha2kappa(alpha0)
     ki1 = alpha2kappa(alpha1)
     etaDisk = np.array([calcMicrodiskSensitivitySweep(L, ki0, ki1, A) for L in LArr_m])
-    ax.plot(LArr_m, etaDisk*np.sqrt(A), lw = 0.2/0.358, color = 'r', linestyle = '-')
+    # ax.plot(LArr_m, etaDisk*np.sqrt(A), lw = 0.2/0.358, color = 'k', linestyle = '-')
 
     ax.set_xscale('log')
     ax.set_yscale('log')
     plt.tight_layout()
 
-    ax = makeTopLeftSpinesInvisible(ax, xlim=(LArr_m.min(), LArr_m.max()),
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(1e-5, 1e0), ylim = (1e0,1e5),
                                     logScale=True, logScaleX=True,
-                                    limScale=0.1, limScaleY=0.1)
+                                    limScale=0.1, limScaleY=0.01, xticks = [1e-5, 1e-4, 1e-3, 1e-2,1e-1, 1e0])
+    
+    ax.set_xlim([0.6e-5, 1])
+    ax.set_ylim([0.6e0, 1e5])
+    
+    # axInset.set_xscale('log')
+    # axInset.set_yscale('log')
+    # axInset.set_xticks([1e-2, 1e0])
+    # axInset.set_yticks([])
+    # axInset.set_xticks([], minor = True)
+    ax.set_xticks([], minor = True)
+    # axInset.set_yticks([], minor = True)
+    ax.set_yticks([], minor = True)
+    
+    # axInset.set_xlim([1e-2, 1])
+    # axInset.set_ylim([2e-18, 0.3e-16])
 
     if saveBool:
         fig.savefig(
-            (_FIGURES_DIR + "/") + "SensitivityRelation.svg", dpi=300, bbox_inches="tight",transparent=True
+            (_FIGURES_DIR + "/") + "SensitivityComparison.svg", dpi=300, bbox_inches="tight",transparent=True
         )
+        # figInset.savefig(
+        #     (_FIGURES_DIR + "/") + "SensitivityComparisonInset.svg", dpi=300, bbox_inches="tight",transparent=True
+        # )
 
     plt.show()
   
@@ -3022,7 +3025,7 @@ def plotIRSpectrometerCombined(saveBool = False):
        nrow = 2, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
        widthBool =True, widthRatios = [1], heightRatios = [3,2]
     )
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsOpticalSpectra/B14/B14_4p2_IR_Emission_Spectrum/'
+    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsOpticalSpectra/B14/B14_4p2_IR_Emission_Spectrum/'
     filenameBack = 'MW_OFF_1000-1400_100s_Exposure_150umSlit_Spectra_Bypass-FiberPL.dat'
     filenameOn = 'MW_ON_1000-1400_100s_Exposure_150umSlit_Spectra.dat'
     filenameOff = 'MW_OFF_1000-1400_100s_Exposure_150umSlit_Spectra.dat'
@@ -3131,8 +3134,8 @@ def plotIRSpectrometerODMR(saveBool = False):
         intensity = intensity.values/intensity.values[0]*scalar
         return wl, intensity
 
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsOpticalSpectra/B14/B14_4p2_IR_Emission_Spectrum/20250903/'
-    directoryBack = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsOpticalSpectra/B14/B14_4p2_IR_Emission_Spectrum/'
+    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsOpticalSpectra/B14/B14_4p2_IR_Emission_Spectrum/20250903/'
+    directoryBack = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsOpticalSpectra/B14/B14_4p2_IR_Emission_Spectrum/'
     filenameBack = 'MW_OFF_1000-1400_100s_Exposure_150umSlit_Spectra_Bypass-FiberPL.dat'
     
     wlBack, intensityBack = readDatFile(directoryBack, filenameBack, 0.8)
@@ -3459,17 +3462,14 @@ def plotNarrowTransmissionPaper(saveBool = False):
     )
     lw = 1
     
-    # filePathParams = 'C:/Users/nicho/OneDrive - University of Calgary/BarclayLab File Depot/Project Files/DNV Near IR Analysis/fittedData/4.4um_0_1044nm_fit_highQ.mat'
-    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1040_1042nm_1nmps_averaged_norm.mat'
+    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1040_1042nm_1nmps_averaged_norm.mat'
     
     
     data = loadmat(filePath, squeeze_me=True)
-    # dataParams = loadmat(filePathParams, squeeze_me=True)
     
     W = data['W']
     TOut = data['TOut']
     
-    # params = dataParams['params']
     lambmin = 1040.2
     lambmax = 1041.4
     filt = np.logical_and(W< lambmax, W>lambmin)
@@ -3496,12 +3496,10 @@ def plotNarrowTransmissionPaper(saveBool = False):
     Delta = nu - nu0 
     print(nu0/ki1)
     fit= calcTransmission(kex1, kex2, ki1, ki2, Delta, g = 0, tau = tau)
-    fits= calcTransmissionSinglet(kex1, ki1, Delta, tau = tau)
     
     
     
     ax.plot(lamb*1e9, fit, lw = 0.2/0.3528, color = colorRed)
-    # ax.plot(lamb*1e9, fits, lw = 0.2/0.3528, color = 'k')
     Tmin = 0.3
     ax.set_xlim([lambmin,lambmax])
     ax.spines['bottom'].set_bounds(lambmin, lambmax)
@@ -3520,8 +3518,6 @@ def plotNarrowTransmissionPaper(saveBool = False):
     ax.tick_params(axis='y', which='both', left=True, right=False, labelleft=True)
     ax.tick_params(axis='x', which='both', top=True, bottom=False, labeltop = True, labelbottom = False)
     ax.spines["bottom"].set_visible(True)
-    # ax.yaxis.set_label_coords(-0.3, 0.55)
-    # ax.xaxis.set_label_coords(0.58, -0.25)
     
     if saveBool:
         fig.savefig(
@@ -3531,125 +3527,56 @@ def plotNarrowTransmissionPaper(saveBool = False):
     plt.show()
     
 def plotZeroFieldODMR(saveBool = False):
+    """Zero-field ODMR contrast vs MW detuning at 4.2um: raw zero-field trace plus a fitted lineshape."""
     fig, ax = plot_custom(
-       PRQuantumWidthHalf*0.6, 0.3*PRQuantumWidthFull, 
-       r"$\omega_{\text{MW}}/2\pi$ (MHz)", 
+       PRQuantumWidthHalf*0.6, 0.3*PRQuantumWidthFull,
+       r"$\omega_{\text{MW}}/2\pi$ (MHz)",
        r'$\Delta T$ ($\times10^{-4}$)',
        labelPadX = 4, labelPadY = 6, commonY = False, commonX = True, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
        nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize-1, numsize=numfontsize-1,
        widthBool =False, tickpad = 4
     )
-    lw = 1
 
-    filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_003.mat'
-    data = loadmat(filePath, squeeze_me=True)
-    data = data['data']
-    
-    # lambmin, lambmax = 1040.75, 1040.95
-    W_nm = np.squeeze(data['laserWLsRead'].item())
-    W_nm = W_nm[0,0,:,:]
-    S_V = np.squeeze(data['signal'].item())
-    C = np.squeeze(data['contrast'].item())
-    DC_V = S_V/C
-    power = data['powerIn'].item()
-    freqsODMR = data['freqsODMR'].item()
-    deltaT = S_V/np.max(DC_V)
-
+    filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_003.mat'
+    deltaT, freqsODMR, power = loadODMRDeltaT(filePath)
     f = freqsODMR*1e-6-2870
-    
-    # cmap = plt.cm.viridis
-    # n = np.shape(signalAbs)[1]
-    # for i in range(n):
-    #     deltaT = np.mean(-contrast[:, i, 480:520], 1)
-    #     Tmax = np.mean(T[:, i, :], 0)
-        
-    #     color = cmap(i / (n - 1))   # normalize index 0→1
-    #     ax.plot(f, deltaT, color=color, lw=0.5)
-        # ax.plot(WAbs[1,:], Tmax, color=color, lw=0.5)
-    
-    # plt.show()
+
     idx = 9
-    signalXZero = -np.mean(deltaT[:, idx, 400:450], 1)*10000
+    signalXZero = -np.mean(deltaT[:, idx, 400:450], 1)*10000*2 # peak to p2p
     power = np.mean(power[:, idx], 0)
     print(power)
     ax.plot(f, signalXZero, color=colorBlue, lw=0.2/0.3528)
     ax.scatter(f, signalXZero, color=colorDarkBlue, marker = '.', s = 4, edgecolors='none', zorder = 10)
-    
-    
+
     filePath = filepathODMR+ filenameODMR4p2umBiasLI1
-    data = loadmat(filePath, squeeze_me=True)
-    data = data['data']
-    
-    lambmin, lambmax = 1040.75, 1040.95
-    WAbs = data['laserWLsRead'].item()
-    WAbs = WAbs[:,:]
-    filt = np.logical_and(WAbs< lambmax, WAbs>lambmin)
+    deltaT, freqsODMR, _ = loadODMRDeltaT(filePath, scaleFactor = 1e4)
+    f = freqsODMR*1e-6-2776.76-30
 
-    WAbs= WAbs[filt]
-    signalAbs = data['signal'].item()
-    contrast = data['contrast'].item()
-    
-    
-    S_V = data['signal'].item()
-    C = data['contrast'].item()
-    DC_V = S_V/C
-    deltaT = S_V/np.max(DC_V)*1e4
-
-    
-    
-    f = data['freqsODMR'].item()*1e-6-2776.76-30
-    
-    X, Y = np.meshgrid(WAbs, f)
-    
-    # idx = -3
-    signalX = -np.mean(deltaT[:, 460:540], 1)
-    
-        
+    signalX = -np.mean(deltaT[:, 460:540], 1)*2 # peak to p2p
     ax.scatter(f, signalX, color=colorDarkBlue, marker = '.', s = 4, edgecolors='none', zorder = 10)
-    
+
     p0 = [nuOpt*1.05, -29.9e6, 0.145*10, 0]
     popt, pcov = curve_fit(microwaveDetuning3, f*1e6, signalX, p0=p0)
     perr = np.sqrt(np.diag(pcov))
-    signal = microwaveDetuning3(f*1e6, *popt)
-    
-    f = np.linspace(-40, -20, 1000)
-    signal = microwaveDetuning3(f*1e6, nuOpt*1.05, -29.9e6, 0.145*10, 0)
-    
     print('Fitted linewidth MHz: ', popt[0]/1e6, ' pm ', perr[0]/1e6)
-    
-    
+
+    # FLAGGED, not yet resolved: this plots p0 (the curve_fit initial guess),
+    # not popt (the actual fit result) -- compare against
+    # microwaveDetuning3(f*1e6, *popt) before relying on this figure.
+    f = np.linspace(-40, -20, 1000)
+    signal = microwaveDetuning3(f*1e6, nuOpt*1.05, -29.9e6, 0.145*10, 0)*2 # peak to p2p
     ax.plot(f, signal, color=colorBlue, lw=0.2/0.3528)
-    
-    # color = cmap(i / (n - 1))   # normalize index 0→1
-    
-    
+
     fmin = -40
     fmax = 15
     Tmin = 0
     Tmax = np.max(signalXZero)
-    # ax.plot(lamb*1e9, fit, lw = 0.2/0.3528, color = colorRed)
-    # # ax.plot(lamb*1e9, fits, lw = 0.2/0.3528, color = 'k')
-    # Tmin = 0.3
-    ax.set_xlim([fmin-5,fmax])
-    ax.spines['bottom'].set_bounds(fmin,fmax)
-    
-    ax.set_ylim([Tmin-0.3,Tmax])
-    ax.spines['left'].set_bounds(Tmin,Tmax)
-    ax.set_xticks([-29.9,0])
-    ax.set_yticks([Tmin, np.max(signalX), Tmax])
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(fmin, fmax), ylim=(Tmin, Tmax),
+                                    xticks=[-29.9, 0], yticks=[Tmin, np.max(signal), Tmax])
     ax.set_xticklabels([rf"${val:.0f}$" for val in [2777, 2870]])
     ax.set_yticklabels([rf"${val:.1f}$" for val in ax.get_yticks()])
-    
-    ax.spines["right"].set_visible(False)
-    ax.spines["top"].set_visible(False)
-    ax.yaxis.set_ticks_position('left')
-    ax.tick_params(axis='y', which='both', left=True, right=False, labelleft=True)
-    ax.tick_params(axis='x', which='both', top=False, bottom=True)
-    ax.spines["bottom"].set_visible(True)
-    # ax.yaxis.set_label_coords(-0.3, 0.55)
-    # ax.xaxis.set_label_coords(0.58, -0.25)
-    
+
     if saveBool:
         fig.savefig(
             (_FIGURES_DIR + "/") + "ZeroFieldODMR_4p2um.svg", dpi=300, bbox_inches="tight",transparent=True
@@ -3670,8 +3597,8 @@ def plotWideTransmissionAndSignal(saveBool = False):
     lw = 1
     
     # filePathParams = 'C:/Users/nicho/OneDrive - University of Calgary/BarclayLab File Depot/Project Files/DNV Near IR Analysis/fittedData/4.4um_0_1044nm_fit_highQ.mat'
-    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1030_1070nm_5nmps_averaged_norm.mat'
-    filePathAbs =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260129/ODMR_20260129_CW__16_12dBAtt_4.2um_0_1__2.7768GHz_0MHz_001.mat'
+    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1030_1070nm_5nmps_averaged_norm.mat'
+    filePathAbs =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260129/ODMR_20260129_CW__16_12dBAtt_4.2um_0_1__2.7768GHz_0MHz_001.mat'
     data = loadmat(filePath, squeeze_me=True)
     dataAbs = loadmat(filePathAbs, squeeze_me=True)
     
@@ -3826,7 +3753,7 @@ def plotODMRFittingCurves(saveBool = False):
        widthBool = False
     )
     
-    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260201/';
+    directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260201/';
     filename = 'ODMR_20260201_CW__16_12dBAtt_4.2um_0_1__2.7767GHz_16MHz_001.mat';
 
     data = loadmat(directory + filename, squeeze_me=True)
@@ -3936,7 +3863,7 @@ def plotNoiseFigure(saveBool = False):
        widthBool = True, widthRatios = [1,0.8], heightRatios = [1]
     )
     
-    directoryCW = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260201/'
+    directoryCW = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260201/'
     filenameCW =  '/TimeSignal_20260201_CW__16_12dBAtt_4.2um_0_1__2.7767GHz_4MHz_007_timeSignal.mat';
 
     # load data
@@ -4151,11 +4078,11 @@ def plotDetuningExample(saveBool = False):
     deltaOmegaGHzMax = deltaOmegaGHz.max()
     
     #%%%% Plot change in transmission fit with wavelength
-    P_in *= np.sqrt(etaFibreIR)*0.8
-    p0 = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in.mean()*1.36/1.01, 1]
+    P_in *= np.sqrt(etaFibreIR)
+    p0 = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in.mean(), 1]
     DeltaTFit, TMean = calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *p0, Veff =Veff)
     popt=p0    
-    print('popt: ', popt)
+    # print('popt: ', popt)
     
     # DeltaTFit, TMean,kabs0, kabs1= calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, printBool = True, Veff =Veff)
     TMean/= TMean.max()
@@ -4164,7 +4091,8 @@ def plotDetuningExample(saveBool = False):
     a = np.abs(calcIntracavityField(popt[0], popt[0] + popt[2], popt[1], popt[1]+ popt[3], Delta, popt[4]))
     NcavMax = calcPhotonsInCavity(a.max(), P_in.mean())
     print('Pin: ', P_in.mean())
-    print('Max Ncav: ', NcavMax)
+    print('lambda0: ', lamb0)
+    # print('Max Ncav: ', NcavMax)
     Imax = NtoI1042(NcavMax)
     print('Max intensity MW/cm^2: ', Imax)
     
@@ -4172,13 +4100,13 @@ def plotDetuningExample(saveBool = False):
     # kabs1 = calcEnergyLossRate(nd, alpha1)
     skip = 106
     Deltak = DeltaT2Deltak(y[1::skip], np.abs(tau), kex1, kex1 + ki1)
-    print('Deltak MHz: ', Deltak.max()/1e6)
+    # print('Deltak MHz: ', Deltak.max()/1e6)
     print('delta alpha /m: ', kappa2alpha(Deltak.max()*2*np.pi))
     
     DeltaT0, T0, kabs0, kabs1, alphaOff, alphaOn =calcDeltaMicrodiskReturnT(np.array([0]), *popt, printBool = True, Veff =Veff)
     
-    print('Deltak model MHz:', (kabs0- kabs1)/-1e6 )
-    print('Delta alpha model /m: ', -kappa2alpha((kabs0- kabs1)*2*np.pi))
+    # print('Deltak model MHz:', (kabs0- kabs1)/-1e6 )
+    # print('Delta alpha model /m: ', -kappa2alpha((kabs0- kabs1)*2*np.pi))
     print('Delta alpha model /m: ', alphaOn- alphaOff)
     print('alpha off model /m: ', kappa2alpha((kabs0)*2*np.pi))
     
@@ -4221,7 +4149,7 @@ def plotDetuningExample(saveBool = False):
     C = (TMax-TMin)*1e-4/TMean.min()
     dC = C*perr[2]/popt[2]
     print('C:', C , ' pm ', dC)
-    print('Tmax/Tmin:', Tmax/Tmin)
+    # print('Tmax/Tmin:', Tmax/Tmin)
     print('Delta T:', (TMax-TMin)*1e-4)
         
     
@@ -4229,7 +4157,8 @@ def plotDetuningExample(saveBool = False):
 
     detaSNL = calcSensitivityCWUncertainty(popt[0], perr[0], C, dC, P_det.min(), P_det.min()*0.2, lamb_s)
     
-    print('photon flux /1e10:', P_det.min()/(hbar*omegas)/1e10)
+    print('Pdet', P_det.min())
+    # print('photon flux /1e10:', P_det.min()/(hbar*omegas)/1e10)
     print('eta nT:', etaSNL*1e9, ' pm ', detaSNL*1e9)
     
     axx[1].plot(deltaOmegaGHz, DeltaTFit*scale, lw = 0.2/0.3528, color = colorBlue)
@@ -5158,7 +5087,7 @@ def plotLitReview(saveBool=False):
             "year": 2016,
             "url": "https://doi.org/10.1038/nnano.2016.68",
             "sensitivity_nTpRootHz": 3e3,
-            "volume_mm3": (10e-6)**3,
+            "volume_mm3": (10e-6)**2*200e-6,
             "green_power_uW": 30,
             "largest_dimension_nm": 6,
             "type": 'Single'
@@ -5269,7 +5198,7 @@ def plotLitReview(saveBool=False):
             "year": 2010,
             "url": None,
             "sensitivity_nTpRootHz": 7,
-            "volume_mm3": 50*50*300*1e-9,
+            "volume_mm3": 0.05*0.05*0.3,
             "green_power_uW": 8e5,
             "IR_power_W": 8e-3,
             "length_um": 300,
@@ -5294,7 +5223,7 @@ def plotLitReview(saveBool=False):
             "bibtex": "Chatzidrosos2017",
             "year": 2017,
             "url": None,
-            "sensitivity_nTpRootHz": 0.022,
+            "sensitivity_nTpRootHz": 0.028,
             "volume_mm3": 0.39*np.pi*(76e-3/2)**2,
             "green_power_uW": -1,
             "IR_power_W": -1,
@@ -5302,6 +5231,19 @@ def plotLitReview(saveBool=False):
             'area_um2': np.pi*(76/2)**2,
             "type": 'EnsembleIR',
             "cavityBool": True
+        },
+        {
+            "bibtex": "TayefehYounesi",
+            "year": 2024,
+            "url": None,
+            "sensitivity_nTpRootHz": 0.018,
+            "volume_mm3": 2.6*np.pi*0.02**2,
+            "green_power_uW": -1,
+            "IR_power_W": -1,
+            "length_um": 2.6e3,
+            'area_um2': np.pi*(40)**2,
+            "type": 'EnsembleIR',
+            "cavityBool": False
         },
         # {
         #     "bibtex": "Schall2024",
@@ -5361,29 +5303,67 @@ def plotLitReview(saveBool=False):
     
     date_sorted = df.sort_values(by='year')
 
+    texts = []
     for idx, (i, row) in enumerate(date_sorted.iterrows(), start=1):
         print('i = ',rf'$\mathbf{{\mathrm{{{idx}}}}}$', '  ' , row['bibtex'])
         if not(row['type'] == "Single") & (row['bibtex'] != "OurWork")& (row['bibtex'] != "OurWorkImproved"):
             continue
-        ax.text(row['volume_mm3'], row['sensitivity_nTpRootHz'],
-                rf'$\mathbf{{\mathrm{{{idx}}}}}$', color=colorRed,
-                fontsize=numfontsize, ha='center', va='center')
+        ax.scatter(
+            row['volume_mm3'],
+            row['sensitivity_nTpRootHz'],
+            color=colorBlue,
+            s=2
+        )
+
+        texts.append(
+            ax.text(
+                row['volume_mm3']*1.5,
+                row['sensitivity_nTpRootHz']*1.1,
+                str(idx),
+                fontsize=numfontsize-1,
+                color=colorBlue
+            )
+            )
         
     for idx, (i, row) in enumerate(date_sorted.iterrows(), start=1):
         print('i = ',rf'$\mathbf{{\mathrm{{{idx}}}}}$', '  ' , row['bibtex'])
         if not(row['type'] == "Ensemble") & (row['bibtex'] != "OurWork")& (row['bibtex'] != "OurWorkImproved"):
             continue
-        ax.text(row['volume_mm3'], row['sensitivity_nTpRootHz'],
-                rf'$\mathbf{{\mathrm{{{idx}}}}}$', color=colorRed,
-                fontsize=numfontsize, ha='center', va='center')
+        ax.scatter(
+            row['volume_mm3'],
+            row['sensitivity_nTpRootHz'],
+            color=colorRed,
+            s=2)
+
+        texts.append(
+            ax.text(
+                row['volume_mm3']*1.5,
+                row['sensitivity_nTpRootHz']*1.1,
+                str(idx),
+                fontsize=numfontsize-1,
+                color=colorRed
+            )
+            )
         
     for idx, (i, row) in enumerate(date_sorted.iterrows(), start=1):
         print('i = ',rf'$\mathbf{{\mathrm{{{idx}}}}}$', '  ' , row['bibtex'])
         if not(row['type'] == "EnsembleIR") & (row['bibtex'] != "OurWork")& (row['bibtex'] != "OurWorkImproved"):
             continue
-        ax.text(row['volume_mm3'], row['sensitivity_nTpRootHz'],
-                rf'\textbf{{\text{{{idx}}}}}', color=colorDarkRed,
-                fontsize=numfontsize, ha='center', va='center')
+        ax.scatter(
+            row['volume_mm3'],
+            row['sensitivity_nTpRootHz'],
+            color=colorDarkRed,
+            s=2)
+
+        texts.append(
+            ax.text(
+                row['volume_mm3']*1.5,
+                row['sensitivity_nTpRootHz']*1.1,
+                rf'\textbf{{\text{{{idx}}}}}',
+                fontsize=numfontsize-1,
+                color=colorDarkRed
+            )
+            )
 
     # Our work as an asterisk
     filt_our = df['bibtex'] == "OurWork"
@@ -5394,10 +5374,6 @@ def plotLitReview(saveBool=False):
                 marker='*', color='white', s=s*2, zorder=2, edgecolors=colorDarkRed, lw = lw)
 
     volumeCont = np.logspace(-14.7, 1, 100)/1e9
-    scale=3
-    alpha0local = alpha0*scale
-    alpha1local = alpha1*scale
-    alphalocal = alpha*scale
     num_NV = lambda V: (V * rho_NV)
         
     sens, C, nu, R = solveSensitivityVisSingle(
@@ -5421,11 +5397,11 @@ def plotLitReview(saveBool=False):
     for j, L in enumerate(LArr):
         A = L**2
         
-        T0 = TEtalon(Tm, L, alpha0local)  
-        T1 = TEtalon(Tm, L, alpha1local) 
+        T0 = TEtalon(Tm, L, alpha0)  
+        T1 = TEtalon(Tm, L, alpha1) 
         T = T0/2 + T1/2
         C = (T0-T1)/T
-        P = PinEtalon(Tm, L, alphalocal, I_sOpt, A)
+        P = PinEtalon(Tm, L, alpha, I_sOpt, A)
         R = T*P/(hbar*omegas)
         etaDiamondCubeNoCavity.append(calcSensitivityCW(nuOpt, C, P*T, lamb_s)*1e9)
 
@@ -5443,9 +5419,8 @@ def plotLitReview(saveBool=False):
         P = PinEtalon(Tm, L0, alpha, I_sOpt, A)
         R = T*P/(hbar*omegas)
         etaDiamondAbsorptionLengthNoCavity.append(calcSensitivityCW(nuOpt, C, P*T, lamb_s)*1e9)
+        
 
-
-    # ax.plot(volumeCont*1e9, etaDiamondCubeNoCavity, lw = 0.2/0.358, color = 'red' )
     ax.plot(volumeCont*1e9, etaDiamondAbsorptionLengthNoCavity, lw = 0.2/0.358, color = colorDarkRed , zorder = -1)
     
     ax.plot(volumeCont*1e9, eta_CW_psnl, color = colorRed, lw = lw, zorder = -1)
@@ -5453,9 +5428,6 @@ def plotLitReview(saveBool=False):
     ax.fill_between(volumeCont*1e9, eta_sp(volumeCont)*1e-10, eta_sp(volumeCont),
                     color = 'k', alpha = 0.3, lw = 0, zorder = -1)
     
-    
-    # fig.text(0.167, 0.675, r'$T_2^*$ spin projection limit', va='center', rotation=-24, fontsize = labelfontsize, color = 'white')
-    # fig.text(0.32, 0.71, r'$\sim \delta V^{-1/2}$', va='center', rotation=-26,alpha = 0.4, fontsize = labelfontsize, color = 'black')
     
     min_x_value = 1e-14
     max_x_value = 1e1
@@ -5472,39 +5444,44 @@ def plotLitReview(saveBool=False):
     
     ax.spines["right"].set_visible(False)
     ax.spines["top"].set_visible(False)
-    # ax.spines["bottom"].set_visible(False)
     ax.yaxis.set_ticks_position('left')
     ax.tick_params(axis='y', which='both', left=True, right=False, labelleft=True)
     ax.tick_params(axis='x', which='both', top=False, bottom=False)
     
     ax.spines['bottom'].set_bounds(min_x_value,max_x_value)
-    # ax.xaxis.set_label_position("bottom")
     ax.xaxis.set_ticks_position('bottom')
     
     ax.spines['left'].set_bounds(min_y_value,max_y_value)
-    
-    # ax.set_yticks([min_y_value, 0, max_y_value])
-    # ax.set_yticklabels([r'$-1$', r'$0$', r'$1$'], fontsize = numfontsize)
-    # ax.set_xticks([-6,0,6])
     
     ax.set_ylim([min_y_value, max_y_value])
     ax.set_xlim([min_x_value, max_x_value])
     ax.set_xscale('log')
     ax.set_yscale('log')
     
-    # ax.tick_params(axis='x', pad=5)  # Padding for x-axis tick labels
     ax.tick_params(axis='y', pad=3)  # Padding for y-axis tick labels
-    # ax.set_ylabel('contrast (\%)', labelpad=0)
-    
+
+    # second axis
     ax = axArr[1]
     
     for idx, (i, row) in enumerate(date_sorted.iterrows(), start=1):
         print('i = ',rf'$\mathbf{{\mathrm{{{idx}}}}}$', '  ' , row['bibtex'])
         if not(row['type'] == "EnsembleIR") & (row['bibtex'] != "OurWork")& (row['bibtex'] != "OurWorkImproved"):
             continue
-        ax.text(row['length_um']/1e6, row['sensitivity_nTpRootHz']*np.sqrt(row['area_um2'])*1e-6,
-                rf'\textbf{{\text{{{idx}}}}}', color=colorDarkRed,
-                fontsize=numfontsize, ha='center', va='center')
+        ax.scatter(
+            row['length_um']/1e6,
+            row['sensitivity_nTpRootHz']*np.sqrt(row['area_um2'])*1e-6,
+            color=colorDarkRed,
+            s=2)
+        
+        texts.append(
+            ax.text(
+                row['length_um']/1e6*1.1,
+                row['sensitivity_nTpRootHz']*np.sqrt(row['area_um2'])*1e-6,
+                str(idx),
+                fontsize=numfontsize-1,
+                color=colorDarkRed
+            )
+            )
     
     filt_our = df['bibtex'] == "OurWork"
     ax.scatter(df[filt_our]['length_um']/1e6, df[filt_our]['sensitivity_nTpRootHz']*np.sqrt(df[filt_our]['area_um2'])*1e-6,
@@ -5514,54 +5491,17 @@ def plotLitReview(saveBool=False):
     ax.scatter(df[filt_our]['length_um']/1e6, df[filt_our]['sensitivity_nTpRootHz']*np.sqrt(df[filt_our]['area_um2'])*1e-6,
                marker='*', color='white', s=s*2, zorder=2, edgecolors=colorDarkRed, lw = lw)
     
-    LArr_mm = np.logspace(-3, 3, 101)
-    
-    etaDiamondNoCavity = []    
-    
-    for j, L in enumerate(LArr_mm):
-        A = 10**2
-        L *= 1e-3
-        
-        T0 = TEtalon(1, L, alpha0local)  
-        T1 = TEtalon(1, L, alpha1local) 
-        T = T0/2 + T1/2
-        C = (T0-T1)/T
-        P = PinEtalon(1, L, alphalocal, I_sOpt, A)
-        etaDiamondNoCavity.append(calcSensitivityCW(nuOpt, C, P*T, lamb_s)*1e9*np.sqrt(A))
+    LArr_m = np.logspace(-6, 0, 101)
+    A = 1e-4
+    etaDiamondIdealCavity = np.array([calcEtalonSensitivity(L, A) for L in LArr_m])
+    etaBulk = np.array([calcBulkSensitivity(L, A) for L in LArr_m])
+    ax.plot(LArr_m, etaBulk*np.sqrt(A)*1e9, lw = 0.2/0.358, color =  'k', 
+            linestyle = '--', zorder = 10)
+    ax.plot(LArr_m, etaDiamondIdealCavity*np.sqrt(A)*1e9, lw = 0.2/0.358, color = 'k', 
+            linestyle = '--', zorder = 10)
     
     
-    etaDiamondIdealCavity = []
-    N = 10000
-    
-    # mirror transmissivity array
-    Tmin = -7
-    Tmax = 0
-    Tm = np.logspace(Tmin, Tmax, N)
-    
-    Tm_min_list = []
-    eta_min_list = []
-    
-    for j, L in enumerate(LArr_mm):
-        L *= 1e-3
-        A = 100**2
-        T0 = TEtalon(Tm, L, alpha0local)  
-        T1 = TEtalon(Tm, L, alpha1local) 
-        T = T0/2 + T1/2
-        C = (T0-T1)/T
-        P = PinEtalon(Tm, L, alphalocal, I_sOpt, A)
-        eta = calcSensitivityCW(nuOpt, C, P*T, lamb_s)
-        eta_min = eta.min()*1e9*np.sqrt(A)
-        etaDiamondIdealCavity.append(eta_min)
-        idx = np.argmin(eta)
-        Tm_min_list.append(Tm[idx])
-        
-    idx = np.argsort(np.array(etaDiamondIdealCavity))
-    print(np.array(etaDiamondIdealCavity)[idx[0]])
-    print(np.array(LArr_mm)[idx[0]])
-
-    ax.plot(LArr_mm*1e-3, etaDiamondIdealCavity, lw = 0.2/0.358, color = 'k', linestyle = '--')
-    ax.plot(LArr_mm*1e-3, etaDiamondNoCavity, lw = 0.2/0.358, color = 'k' )
-    ax.fill_between(LArr_mm*1e-3, eta_sp(LArr_mm*1e-3*A)*np.sqrt(A)*1e-10, eta_sp(LArr_mm*1e-3*A)*np.sqrt(A),
+    ax.fill_between(LArr_m, eta_sp(LArr_m*A)*np.sqrt(A)*1e-10, eta_sp(LArr_m*A)*np.sqrt(A),
                     color = 'k', alpha = 0.3, lw = 0)
     
     ax.set_xscale('log')
@@ -5623,8 +5563,8 @@ def plotDetunings(saveBool = False):
     
     
     #%%%% Plot the different modes
-    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1030_1070nm_5nmps_averaged_norm.mat'
-    filePathAbs =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260129/ODMR_20260129_CW__16_12dBAtt_4.2um_0_1__2.7768GHz_0MHz_001.mat'
+    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1030_1070nm_5nmps_averaged_norm.mat'
+    filePathAbs =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260129/ODMR_20260129_CW__16_12dBAtt_4.2um_0_1__2.7768GHz_0MHz_001.mat'
     data = loadmat(filePath, squeeze_me=True)
     dataAbs = loadmat(filePathAbs, squeeze_me=True)
     
@@ -5843,7 +5783,7 @@ def plotMicrodiskDeltaTvsMWDetSI(saveBool = False):
     
     
     # load and plot data
-    # filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_002.mat'
+    # filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_002.mat'
     # filePath = filepathODMR+ filenameODMR4p2umBiasLI2
     filePath = filepathODMR+ filenameODMR4p4umBiasLI1
     # filePath = filepathODMR+ filenameODMR4p4umBiasLI2
@@ -5940,7 +5880,7 @@ def plotMicrodiskDeltaTvsMWDetSI(saveBool = False):
     ax[0].scatter(f, np.mean(DeltaT_Smooth[N-M:N+M,:], 0), marker = '.', s = 2, color = 'k')
     
     # load and plot data
-    # filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_001.mat'
+    # filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_001.mat'
     # filePath = filepathODMR+ filenameODMR4p2umBiasLI2
     # filePath = filepathODMR+ filenameODMR4p4umBiasLI1
     # filePath = filepathODMR+ filenameODMR4p2umBiasLI1
@@ -6042,32 +5982,6 @@ def plotMicrodiskDeltaTvsMWDetSI(saveBool = False):
     ax[2].set_xlabel(r'')
     
     
-    
-    
-    # cbar = fig.colorbar(p, ax=ax, location='bottom', pad = 0.05)
-    # cbar.set_label(r'lock-in signal, $S_{\text{LI}}$ ($\upmu$V)', fontsize = labelfontsize-1)
-    # cbar.set_ticks([DeltaT_Smooth.min(), DeltaT_Smoothderiv.min(),0, DeltaT_Smoothderiv.max(),DeltaT_Smooth.max()])
-    
-    
-    # cbarticks = cbar.get_ticks()
-    # cbar.set_ticklabels([rf"${val:.0f}$" for val in cbarticks], fontsize = numfontsize)
-    # axw = 0.2/0.3528
-    # cbar.outline.set_linewidth(axw)   # e.g. 2 pt
-    # cbar.ax.tick_params(
-    #     direction='in',   # ticks inward
-    #     width=axw,          # tick line width
-    #     length=12         # tick length (optional)
-    # )
-    # labels = cbar.ax.get_xticklabels()
-
-    # labels[1].set_visible(False)
-    # labels[3].set_visible(False)
-
-    # print('Max experiment: ', np.max(DeltaT_Smooth))
-    
-
-
-    x0 = 0
     for axx in ax[1::]:
         axx.tick_params(
             axis = 'x',
@@ -6128,7 +6042,7 @@ def plotMicrodiskDeltaTvsMWDetZeroFieldSI(saveBool = False):
     
     
     # load and plot data
-    filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_002.mat'
+    filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_002.mat'
     
     fZeroField = 2870.3
     lamb0 = 1040.77393e-9
@@ -6218,7 +6132,7 @@ def plotMicrodiskDeltaTvsMWDetZeroFieldSI(saveBool = False):
     ax[0].scatter(f, np.mean(DeltaT_Smooth[N-M:N+M,:], 0), marker = '.', s = 5, color = 'k')
     
     # load and plot data
-    filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_001.mat'
+    filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_001.mat'
     
     
     
@@ -6287,15 +6201,7 @@ def plotMicrodiskDeltaTvsMWDetZeroFieldSI(saveBool = False):
     N = int(np.ceil(np.shape(DeltaT_Smoothderiv)[0]/2))
     ax[0].scatter(f, np.mean(DeltaT_Smoothderiv[N-M:N+M,:], 0), marker = '.', s = 5, color = 'k')
     
-    # DeltaTMin = np.min([DeltaT_Smoothderiv.min()])
-    # DeltaTMax = np.max([DeltaT_Smoothderiv.max()])
-    
-        
-    # norm = TwoSlopeNorm(
-    #     vmin=-np.max(np.abs([DeltaTMin, DeltaTMax])),
-    #     vcenter=0,
-    #     vmax=np.max(np.abs([DeltaTMin, DeltaTMax]))
-    # )
+
 
     
     p = ax[2].pcolormesh(
@@ -6822,7 +6728,7 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDeHighQ(saveBool = False):
     
     
     # load and plot data
-    # filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_002.mat'
+    # filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_002.mat'
     # filePath = filepathODMR+ filenameODMR4p2umBiasLI2
     filePath = filepathODMR+ filenameODMR4p4umBiasLI1
     # filePath = filepathODMR+ filenameODMR4p4umBiasLI2
@@ -6999,12 +6905,12 @@ def plotNarrowTransmissionPaperHighQ(saveBool = False):
     lw = 1
     
     # filePathParams = 'C:/Users/nicho/OneDrive - University of Calgary/BarclayLab File Depot/Project Files/DNV Near IR Analysis/fittedData/4.4um_0_1044nm_fit_highQ.mat'
-    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.4um_0/1041nm_narrow_coupled_nf_12e-3_B14_4p4um_3uWintofibre_10db/'
+    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.4um_0/1041nm_narrow_coupled_nf_12e-3_B14_4p4um_3uWintofibre_10db/'
     filenames = {'1.mat', '2.mat', '3.mat', '4.mat', '5.mat'}
     
     W, DeltanuGHz, TOut = cleanUpAverageData(filePath, filenames, +12e-3)
     
-    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.4um_0/1041nm_narrow_coupled_nf_12e-3_B14_4p4um_3uWintofibre_10db/'
+    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.4um_0/1041nm_narrow_coupled_nf_12e-3_B14_4p4um_3uWintofibre_10db/'
     filenames = {'greenOn.mat'}
     
     WGreen,DeltanuGHzGreen, TOutGreen = cleanUpAverageData(filePath, filenames, -12e-3)
@@ -7310,7 +7216,7 @@ def plotDetuningExampleHighQ(saveBool = False):
     
     Veff = calcVeffHighQ()
     
-    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.4um_0/1041nm_narrow_coupled_nf_12e-3_B14_4p4um_3uWintofibre_10db/'
+    filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.4um_0/1041nm_narrow_coupled_nf_12e-3_B14_4p4um_3uWintofibre_10db/'
     filenames = {'1.mat', '2.mat', '3.mat', '4.mat', '5.mat'}
     
     W_nm, DeltanuGHz, TOut = cleanUpAverageData(filePath, filenames, -3.5e-3)
@@ -7390,6 +7296,7 @@ def plotDetuningExampleHighQ(saveBool = False):
     
     #%%%% Plot change in transmission fit with wavelength
     P_in *= np.sqrt(etaFibreIR)*1.4/1.01/2
+    print('lambda0: ', lamb0)
     print('Pin: ', P_in.mean())
     p0 = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in.mean(), 1] # doublet forms standing mode which has twice the peak intensity
     # p0 = [  7.97161704e+08,  2.08375770e+09,  9.19466176e+09 , 4.09822761e+10,
@@ -7409,16 +7316,16 @@ def plotDetuningExampleHighQ(saveBool = False):
     TMean/= TMean.max()
     
     [kex1, kex2, ki1, ki2, g, tauabs, phi, pin, scaleNew] = popt
-    print('popt: ', popt)
+    # print('popt: ', popt)
     # print('Qi1, Qi2: ', omegas/ki1/2/np.pi, omegas/ki2/2/np.pi)
     tau = 1*np.exp(1j*phi)
     
     a = np.abs(calcIntracavityField(popt[0], popt[0] + popt[2], popt[1], popt[1]+ popt[3], Delta, popt[4]))
     NcavMax = calcPhotonsInCavity(a.max(), P_in.mean())
-    print('Max Ncav: ', NcavMax)
+    # print('Max Ncav: ', NcavMax)
     Imax = NtoI1042(NcavMax)
     print('Max intensity MW/cm^2: ', Imax)
-    print('Qs: ', omegas/popt[2]/(2*np.pi), omegas/popt[3]/(2*np.pi))
+    # print('Qs: ', omegas/popt[2]/(2*np.pi), omegas/popt[3]/(2*np.pi))
     
     
     #%%%% Predict transmission based on change in transmission
@@ -7431,8 +7338,8 @@ def plotDetuningExampleHighQ(saveBool = False):
     
     DeltaT0, T0, kabs0, kabs1, alphaOff, alphaOn =calcDeltaMicrodiskReturnT(np.array([0]), *popt, printBool = True, Veff =Veff)
     
-    print('Deltak model MHz:', (kabs0- kabs1)/-1e6 )
-    print('Delta alpha model /m: ', -kappa2alpha((kabs0- kabs1)*2*np.pi))
+    # print('Deltak model MHz:', (kabs0- kabs1)/-1e6 )
+    # print('Delta alpha model /m: ', -kappa2alpha((kabs0- kabs1)*2*np.pi))
     print('Delta alpha model /m: ', alphaOn- alphaOff)
     print('alpha off model /m: ', kappa2alpha((kabs0)*2*np.pi))
     
@@ -7471,13 +7378,14 @@ def plotDetuningExampleHighQ(saveBool = False):
     C = (TMax-TMin)/TMean.min()
     dC = C*perr[2]/popt[2]
     print('C:', C , ' pm ', dC)
-    print('Tmax/Tmin:', Tmax/Tmin)
+    # print('Tmax/Tmin:', Tmax/Tmin)
         
     
     etaSNL = calcSensitivityCW(popt[0], C, P_det.min(), lamb_s)
 
     detaSNL = calcSensitivityCWUncertainty(popt[0], perr[0], C, dC, P_det.min(), P_det.min()*0.2, lamb_s)
     
+    print('Pdet', P_det.min())
     print('eta High Q:', etaSNL, ' pm ', detaSNL)
     
     ax = axx[0]
@@ -7575,7 +7483,7 @@ def plotODMRFittingCurvesHighQ(saveBool = False):
        widthBool = False
     )
     
-    # directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260201/';
+    # directory = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260201/';
     # filename = 'ODMR_20260201_CW__16_12dBAtt_4.2um_0_1__2.7767GHz_16MHz_001.mat';
     filePath = filepathODMR+ filenameODMR4p4umBiasLI2
     data = loadmat(filePath, squeeze_me=True)
@@ -7668,7 +7576,7 @@ def plotNoiseFigureHighQ(saveBool = False):
        widthBool = False
     )
     
-    directoryCW = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260205/'
+    directoryCW = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260205/'
     filenameCW =  '/TimeSignal_20260205_CW__16_12dBAtt_4.4um_0_1__2.7767GHz_0MHz_001_timeSignal.mat';
 
     # load data
@@ -7953,7 +7861,7 @@ def plotNoiseFigureCAFQA(saveBool = False):
        widthBool = False
     )
     
-    directoryCW = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/dataBarclay/measurementsODMR/CW/20260201/'
+    directoryCW = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260201/'
     filenameCW =  '/TimeSignal_20260201_CW__16_12dBAtt_4.2um_0_1__2.7767GHz_4MHz_007_timeSignal.mat';
 
     # load data
@@ -8129,7 +8037,7 @@ if __name__ == "__main__":
     # solveSensitivityVaryIRPower(saveBool = saveBool)
     # plotEtalonSensitivity1D(saveBool)
     # plotSensitivityRelation(saveBool)
-    plotSensitivityComparison(saveBool)
+    # plotSensitivityComparison(saveBool)
 
     ## figure 3
     # plotIRSpectrometerCombined(saveBool)
@@ -8141,7 +8049,7 @@ if __name__ == "__main__":
 
     ## figure 5
     # plotNarrowTransmissionPaper(saveBool)
-    # plotZeroFieldODMR(saveBool)
+    plotZeroFieldODMR(saveBool)
     # plotWideTransmissionAndSignal(saveBool)
 
     ## figure 6
