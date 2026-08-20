@@ -3959,12 +3959,39 @@ def plotDetuningExample(saveBool = False):
     deltaOmegaGHzMax = deltaOmegaGHz.max()
     
     #%%%% Plot change in transmission fit with wavelength
-    # p0 here is a known-good microdisk parameter set (not fit in this
-    # function) -- popt is just an alias for it, kept for readability below
+    print('Pin in the fiber input: ', P_in.mean(), ' +/- ',  P_in.mean()*0.1) # 10% uncertainty
     P_in *= np.sqrt(etaFibreIR)
     p0 = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in.mean(), 1]
-    DeltaTFit, TMean = calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *p0, Veff =Veff)
-    popt=p0
+
+    # Fit the microdisk model to the measured change-in-transmission data
+    # (x, y) to get the best-fit cavity parameters and their uncertainties.
+    # P_in and scale are held fixed rather than fit: P_in is independently
+    # measured above, and scale=1 is a calibration identity, not a free
+    # cavity parameter. This still doesn't fully separate kex1/kex2/ki1/ki2
+    # from each other (fitting all 9 including P_in/scale gave a covariance
+    # matrix with condition number ~1e37 and correlations >0.95 between
+    # kex1/ki1/kex2/scale -- a single Delta-T-vs-detuning curve just doesn't
+    # independently constrain that many coupled parameters), but it removes
+    # two of the most-correlated ones. Bounded to physical ranges
+    # (rates >= 0, tau <= 2, phi within a cycle).
+    P_inFixed = P_in.mean()
+    scaleFixed = 1
+
+    def deltaTModel(freqHz, kex1_, kex2_, ki1_, ki2_, g_, tauAbs_, phi_):
+        DeltaTFitLocal, _ = calcDeltaMicrodiskReturnT(freqHz, kex1_, kex2_, ki1_, ki2_, g_, tauAbs_, phi_,
+                                                        P_inFixed, scaleFixed, Veff=Veff)
+        return DeltaTFitLocal
+
+    #                  kex1  kex2  ki1   ki2   g     tau  phi
+    lowerBounds = [    0,    0,    0,    0,    0,    0,   -np.pi]
+    upperBounds = [np.inf,np.inf,np.inf,np.inf,np.inf, 2,  np.pi]
+    poptFree, pcov = curve_fit(deltaTModel, x*1e9, y, p0=p0[:7], bounds=(lowerBounds, upperBounds))
+    perr = np.sqrt(np.diag(pcov))
+    for name, val, err in zip(['kex1', 'kex2', 'ki1', 'ki2', 'g', 'tau', 'phi'], poptFree, perr):
+        print(f'fitted {name}: {val:.4e}  +/-  {err:.2e}')
+    popt = list(poptFree) + [P_inFixed, scaleFixed]  # full 9-element form for the code below
+
+    DeltaTFit, TMean = calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, Veff =Veff)
 
     TMean/= TMean.max()
     P_det = P_in.mean()*TMean*np.sqrt(etaFibreIR)*etaPostFibre
@@ -3972,10 +3999,9 @@ def plotDetuningExample(saveBool = False):
     # intracavity photon number / equivalent intensity at the drive power used
     a = np.abs(calcIntracavityField(popt[0], popt[0] + popt[2], popt[1], popt[1]+ popt[3], Delta, popt[4]))
     NcavMax = calcPhotonsInCavity(a.max(), P_in.mean())
-    print('Pin: ', P_in.mean())
     print('lambda0: ', lamb0)
     Imax = NtoI1042(NcavMax)
-    print('Max intensity MW/cm^2: ', Imax)
+    print('Max intensity MW/cm^2: ', Imax, ' +/- ', Imax*0.3) # 30% uncertainty 
 
     # compare the measured vs modeled change in absorption coefficient
     # between MW-on and MW-off, as a consistency check on the fit
