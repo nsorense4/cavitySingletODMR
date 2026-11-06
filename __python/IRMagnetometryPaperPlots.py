@@ -721,24 +721,39 @@ def calcNonlinearTransmissionBulk(L, MW = 'On'):
 
 def calcBulkSensitivityLin(L, A = 1):    
     C = (L*(alpha1-alpha0))
-    P = I_sOpt*A
+    P = I_sOpt*A*np.exp(-L*alpha)
     return calcSensitivityCW(nuOpt, C, P, lamb_s)
 
-def calcBulkSensitivitySimple(L, A = 1):    
+def calcBulkSensitivitySimple(L, A = 1, returnC = False, returnP = False, returnT = False):    
     T0 = TBulk(L, alpha0)  
     T1 = TBulk(L, alpha1) 
     T = T0/2 + T1/2
     C = (T0-T1)/T
-    P = I_sOpt*A
-    return calcSensitivityCW(nuOpt, C, P*T, lamb_s)
+    P = I_sOpt*A*np.exp(-L*alpha)
+    if returnC:
+        return C
+    elif returnP:
+        return P
+    elif returnT:
+        return T0, T1
+    else:
+        return calcSensitivityCW(nuOpt, C, P*T, lamb_s)
 
-def calcBulkSensitivity(L, A = 1):    
+def calcBulkSensitivity(L, A = 1, returnC = False, returnP = False, returnT = False):    
     T0 = calcNonlinearTransmissionBulk(L, MW = 'Off')
     T1 = calcNonlinearTransmissionBulk(L, MW = 'On')
     T = T0/2 + T1/2
-    C = (T0-T1)/T
-    P = I_sOpt*A
-    return calcSensitivityCW(nuOpt, C, P*T, lamb_s)
+    C = np.abs(T0-T1)/T
+    P = I_sOpt*A*np.exp(-L*alpha)
+     
+    if returnC:
+        return C
+    elif returnP:
+        return P
+    elif returnT:
+        return T0, T1
+    else:
+        return calcSensitivityCW(nuOpt, C, P*T, lamb_s)
 
 def calcMicrodiskSensitivity(kex, ki0, ki1, L, A = 1):    
     T0 = calcTransmissionSinglet(kex, ki0, 0, 1)
@@ -752,7 +767,11 @@ def PinEtalon(Tm, L, alpha, I, A):
     # return A*I *(1-(1-Tm)*np.exp(-alpha*L))**2/(Tm*np.exp(-alpha*L))
     return A*I /Tm *(1- (1-Tm)*(np.exp(-alpha*L)))**2
 
-def calcEtalonSensitivity(L, A = 1):
+def PdetEtalon(Tm, L, alpha, I, A):
+    # return A*I *(1-(1-Tm)*np.exp(-alpha*L))**2/(Tm*np.exp(-alpha*L))
+    return A*I*Tm*np.exp(-alpha*L)
+
+def calcEtalonSensitivity(L, A = 1, returnC = False, returnP = False):
     """Ideal-cavity (etalon) sensitivity for one absorber length L, optimized over mirror transmission Tm."""
     Tm = np.logspace(-8, 0, 1001)
     T0 = TEtalon(Tm, L, alpha0)
@@ -761,7 +780,12 @@ def calcEtalonSensitivity(L, A = 1):
     C = np.abs(T0 - T1)/T
     Pdet = I_sOpt*A*Tm*np.exp(-L*alpha)
     eta = calcSensitivityCW(nuOpt, C, Pdet, lamb_s)
-    return eta.min()
+    if returnC:
+        return C[eta.argmin()]
+    elif returnP:
+        return Pdet[eta.argmin()]
+    else:
+        return eta.min()
 
 def calcBeta(A = 1):
     """Shot-noise-limited sensitivity prefactor shared by the etalon/microdisk closed-form approximations."""
@@ -772,6 +796,12 @@ def calcEtalonSensitivitySimple(L, A = 1):
     beta = calcBeta(A)
     DelAlpha = np.abs(alpha1 - alpha0)
     return beta*np.sqrt(alpha)/(DelAlpha*np.sqrt(L))
+
+def calcSinglePassSensitivitySimple(L, A = 1):
+    """Closed-form approximate ideal-cavity (etalon) sensitivity for one absorber length L."""
+    beta = calcBeta(A)
+    DelAlpha = np.abs(alpha1 - alpha0)
+    return beta/(alpha*L)
 
 def calcMicrodiskSensitivitySweep(L, ki0, ki1, A = 1):
     """Side-coupled microdisk sensitivity for one absorber length L, optimized over external coupling rate kex."""
@@ -817,6 +847,35 @@ def calcSensitivityCW_countrate(nu, C,R):
 def calcSensitivityRamsey_countrate(C, R, tread, tdephase, twrite):
     ttotal = tread + tdephase + twrite
     return 1/(2*np.pi*gamma)/C * np.sqrt(1/R/tread) * np.sqrt(ttotal)/tdephase
+
+def calculateOptimalSensitivity():
+    
+    ng = nd
+    tau = 1
+    
+    kabs = alpha2kappa(alpha)
+    kabs0 = alpha2kappa(alpha0)
+    kabs1 = alpha2kappa(alpha1)
+    
+    kex = kabs*0.4
+    ki = kabs
+    ki0 = kabs0
+    ki1 = kabs1
+
+    T0 = calcTransmissionSinglet(kex, ki0, 0, tau = tau)
+    T1 = calcTransmissionSinglet(kex, ki1, 0, tau = tau)
+    T = (T0 + T1)/2
+    DeltaT = T1-T0    
+    C = DeltaT/(T)/3.6
+    
+    Veff = calcVeff()
+    
+    aMicrodisk = aMicrodiskOnRes(kabs, ki, kex)*np.sqrt(2)
+    P = aMicrodiskRes2PinFibre(Veff, I_sOpt, aMicrodisk)
+    P_det = P*T
+    eta = np.abs(calcSensitivityCW(nuOpt, C, P_det, lamb_s))
+    
+    print('eta nT/rootHz: ', eta)
 
 def calcQ(L, Tm, a):
     return 4*np.pi*nd*L/lamb_s/(1- (1-Tm)**2*a)
@@ -1973,6 +2032,62 @@ def plotZeemanSplitting(saveBool = False):
         )
     
     plt.show()
+    
+def plotDissipativeCoupling(saveBool = False):
+    
+    fig, ax = plot_custom(
+       PRQuantumWidthHalf*0.6, 0.4*PRQuantumWidthHalf, 
+       r"", 
+       r'',
+       labelPadX = 3, labelPadY = 8, commonY = False, commonX = False, wSpaceSetting=0,
+       spineColor = 'black', tickColor = 'black', textColor = 'black',
+       nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
+       widthBool =False, spineWidth = 0.15
+    )
+    
+    lamb0 = 1042e-9
+    nu0 = c_const/lamb0
+    FWHM = 25e9
+    bw = FWHM*4
+    nu = np.linspace(nu0 - bw, nu0+bw, 1000)
+    
+    
+    kex1 = FWHM/4
+    kex2 = kex1
+    ki1 = kex1*2
+    ki2 = ki1*2
+    Delta = nu - nu0 
+    T1 = calcTransmissionSinglet(kex1, ki1, Delta)
+    T2 = calcTransmissionSinglet(kex2, ki2, Delta)
+    DeltaT = T2 - T1
+    
+    ax.plot(Delta/1e9,DeltaT, lw = 0.2/0.358, color = colorDarkBlue)
+    
+    
+    kex1 = FWHM/4
+    kex2 = kex1
+    ki2 = ki1
+    Delta = nu - nu0 
+    delta = FWHM/10
+    T1 = calcTransmissionSinglet(kex1, ki1, Delta+delta)
+    T2 = calcTransmissionSinglet(kex2, ki1, Delta-delta)
+    DeltaT =-( T2 - T1)
+    
+    ax.plot(Delta/1e9,DeltaT, lw = 0.2/0.358, color = colorLightBlue)
+
+    ax = makeTopLeftSpinesInvisible(ax)
+
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+    ax.set_yticks([])
+    ax.set_xticks([])
+    
+    if saveBool:
+        fig.savefig(
+            (_FIGURES_DIR + "/") + "ChangeInTransmission.svg", dpi=300, bbox_inches="tight",transparent=True
+        )
+    
+    plt.show()
         
 def plotSpinContrastMechanisms(saveBool = False):
    
@@ -2761,12 +2876,12 @@ def plotSensitivityRelation(saveBool = False,
 def plotSensitivityComparison(saveBool = False):
     """Compare shot-noise-limited sensitivity vs absorber length L across ideal-cavity, bulk, and microdisk geometries."""
     fig, ax = plot_custom(
-       PRQuantumWidthHalf*0.8, PRQuantumWidthHalf*0.58,
+       PRQuantumWidthHalf*0.45, PRQuantumWidthHalf*0.57,
         r"$L$ (m)",
-        r"$\eta$ (au)",
+        r"",
         labelPadX = 3, labelPadY = 9 , commonY = False, commonX = True, wSpaceSetting=0,
         spineColor = 'black', tickColor = 'black', textColor = 'black',
-        nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
+        nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize-1,
         widthBool =False, spineWidth = 0.15
     )
     
@@ -2780,23 +2895,17 @@ def plotSensitivityComparison(saveBool = False):
     #     widthBool =False, spineWidth = 0.15
     # )
 
-    LArr_m = np.logspace(-5, 0, 101)
+    LArr_m = np.logspace(-4, 0, 101)
     A = 1e-12  # sensor area used for all curves below
 
-    # Ideal cavity (etalon): numeric optimum over mirror transmission Tm, and closed-form approximation
-    etaDiamondIdealCavity = np.array([calcEtalonSensitivity(L, A) for L in LArr_m])
-    etaDiamondIdealCavitySimp = np.array([calcEtalonSensitivitySimple(L, A) for L in LArr_m])
-    ax.plot(LArr_m, etaDiamondIdealCavity*np.sqrt(A)/np.min(etaDiamondIdealCavity*np.sqrt(A)), lw = 0.2/0.358, color = colorLightRed, zorder = 10)
-    # axInset.plot(LArr_m, etaDiamondIdealCavity*np.sqrt(A), lw = 0.2/0.358, color = colorLightRed, zorder = 10)
-    # ax.plot(LArr_m, etaDiamondIdealCavitySimp*np.sqrt(A), lw = 0.2/0.358,color = colorDarkRed, linestyle = '--', zorder = 10)
 
-    # Bulk sample, no cavity: full numeric, simplified, and linearized sensitivity
     etaBulk = np.array([calcBulkSensitivity(L, A) for L in LArr_m])
     etamin = etaBulk.min()*np.sqrt(A)
     etaBulkSimple = np.array([calcBulkSensitivitySimple(L, A) for L in LArr_m])
+    etamin = etaBulk.min()*np.sqrt(A)
     etaBulkLin = np.array([calcBulkSensitivityLin(L, A) for L in LArr_m])
-    ax.plot(LArr_m, etaBulk*np.sqrt(A)/etamin, lw = 0.2/0.358, color = colorLightBlue, 
-            linestyle = '--', zorder = 10)
+    # ax.plot(LArr_m, etaBulk*np.sqrt(A)/etamin, lw = 0.2/0.358, color = colorLightBlue, 
+    #         linestyle = '--', zorder = 10)
     # axInset.plot(LArr_m, etaBulk*np.sqrt(A), lw = 0.2/0.358, color = colorLightBlue, 
     #         linestyle = '--', zorder = 10)
     ax.plot(LArr_m, etaBulkSimple*np.sqrt(A)/etamin, lw = 0.2/0.358, color = colorLightBlue, 
@@ -2807,6 +2916,19 @@ def plotSensitivityComparison(saveBool = False):
     #         linestyle = ':', zorder = 0)
     # ax.plot(LArr_m, etaBulkLin*np.sqrt(A), lw = 0.2/0.358, color = colorDarkBlue, linestyle = '--', zorder = 10)
 
+    # Ideal cavity (etalon): numeric optimum over mirror transmission Tm, and closed-form approximation
+    etaDiamondIdealCavity = np.array([calcEtalonSensitivity(L, A) for L in LArr_m])
+    C = np.array([calcEtalonSensitivity(L, A, returnC = True) for L in LArr_m])
+    P = np.array([calcEtalonSensitivity(L, A, returnP = True) for L in LArr_m])
+    etaDiamondIdealCavitySimp = np.array([calcEtalonSensitivitySimple(L, A) for L in LArr_m])
+    ax.plot(LArr_m, etaDiamondIdealCavity*np.sqrt(A)/etamin, lw = 0.2/0.358, color = colorLightRed, zorder = 10)
+    # ax.plot(LArr_m, C/C.min(), lw = 0.2/0.358, color = 'k', zorder = 10)
+    # ax.plot(LArr_m, P/P.min(), lw = 0.2/0.358, color = 'r', zorder = 10)
+    # ax.plot(LArr_m, 1/C/np.sqrt(P)/np.min(1/C/np.sqrt(P)), lw = 0.2/0.358, color = 'r', zorder = 10)
+    # axInset.plot(LArr_m, etaDiamondIdealCavity*np.sqrt(A), lw = 0.2/0.358, color = colorLightRed, zorder = 10)
+    # ax.plot(LArr_m, etaDiamondIdealCavitySimp*np.sqrt(A), lw = 0.2/0.358,color = colorDarkRed, linestyle = '--', zorder = 10)
+
+    # Bulk sample, no cavity: full numeric, simplified, and linearized sensitivity
     # Side-coupled microdisk cavity: closed-form approximation, optimized over coupling rate kex
     ki0 = alpha2kappa(alpha0)
     ki1 = alpha2kappa(alpha1)
@@ -2817,12 +2939,12 @@ def plotSensitivityComparison(saveBool = False):
     ax.set_yscale('log')
     plt.tight_layout()
 
-    ax = makeTopLeftSpinesInvisible(ax, xlim=(1e-5, 1e0), ylim = (1e0,1e5),
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(1e-4, 1e0), ylim = (1e0,0.5e4),
                                     logScale=True, logScaleX=True,
-                                    limScale=0.1, limScaleY=0.01, xticks = [1e-5, 1e-4, 1e-3, 1e-2,1e-1, 1e0])
+                                    limScale=0.1, limScaleY=0.01, xticks = [1e-4, 1e-2,1e0])
     
-    ax.set_xlim([0.6e-5, 1])
-    ax.set_ylim([0.6e0, 1e5])
+    ax.set_xlim([0.4e-4, 1])
+    ax.set_ylim([0.6e0, 0.5e4])
     
     # axInset.set_xscale('log')
     # axInset.set_yscale('log')
@@ -2845,6 +2967,82 @@ def plotSensitivityComparison(saveBool = False):
         # )
 
     plt.show()
+    
+def plotSensitivityComparison2(saveBool = False):
+    """Compare shot-noise-limited sensitivity vs absorber length L across ideal-cavity, bulk, and microdisk geometries."""
+    fig, ax = plot_custom(
+       PRQuantumWidthHalf*0.4, PRQuantumWidthHalf*0.57,
+        r"$L$ (m)",
+        r"",
+        labelPadX = 3, labelPadY = 9 , commonY = False, commonX = True, wSpaceSetting=0,
+        spineColor = 'black', tickColor = 'black', textColor = 'black',
+        nrow = 1, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize, numsize=numfontsize,
+        widthBool =False, spineWidth = 0.15
+    )
+    
+    
+    # twin axis for P, styled to match the spines/ticks plot_custom applies to ax
+    # axTwin = ax.twinx()
+    # for spine in axTwin.spines.values():
+    #     spine.set_color('black')
+    #     spine.set_linewidth(ax.spines['left'].get_linewidth())
+    # axTwin.tick_params(axis = 'y', which = 'both', width = 0.15/0.3528, length = 2,
+    #                    labelsize = numfontsize-1, direction = 'in', pad = 2, colors = 'black')
+
+    LArr_m = np.logspace(-4, 0, 101)
+    A = 1e-12  # sensor area used for all curves below
+
+    CBulk = np.array([calcBulkSensitivitySimple(L, A, returnC = True) for L in LArr_m])
+    PBulk = np.array([calcBulkSensitivitySimple(L, A, returnP = True) for L in LArr_m])/1e12
+
+    ax.plot(LArr_m, CBulk, lw = 0.2/0.358, linestyle = '--', color = colorLightBlue, zorder = 10)
+    ax.plot(LArr_m, PBulk/(A), lw = 0.2/0.358, linestyle = '-', color = colorLightBlue, zorder = 10)
+
+    # Ideal cavity (etalon): numeric optimum over mirror transmission Tm, and closed-form approximation
+    etaDiamondIdealCavity = np.array([calcEtalonSensitivity(L, A) for L in LArr_m])
+    C = np.array([calcEtalonSensitivity(L, A, returnC = True) for L in LArr_m])
+    P = np.array([calcEtalonSensitivity(L, A, returnP = True) for L in LArr_m])/1e12
+
+    ax.plot(LArr_m, C, lw = 0.2/0.358, linestyle = '--', color = colorLightRed, zorder = 10)
+    ax.plot(LArr_m, P/A, lw = 0.2/0.358, linestyle = '-', color = colorLightRed, zorder = 10)
+
+
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    # axTwin.set_yscale('log')
+    plt.tight_layout()
+
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(1e-4, 1e0), ylim = (1e-6,1e0),
+                                    logScale=True, logScaleX=True,
+                                    limScale=0.15, limScaleY=0.03, xticks = [1e-4, 1e-2,1e0]
+                                    , yticks = [1e-6, 1e-4, 1e-2,1e0])
+
+    # ylim auto-detected from the P lines; x is shared with ax so pass the same xlim/xticks
+    # axTwin = makeTopLeftSpinesInvisible(axTwin, spinePositionY = 'Right', xlim=(1e-4, 1e0),
+    #                                     ylim = (5e6, 1e10),
+    #                                     logScale=True, logScaleX=True,
+    #                                     limScale=0.1, limScaleY=0.1, xticks = [1e-4, 1e-2,1e0])
+    # bottom spine is already drawn by ax
+    
+    # axTwin.set_ylim([None, 1.1e10])
+    # ax.set_ylim([None, 1e0])
+    # axTwin.spines['bottom'].set_visible(False)
+
+    ax.set_xticks([], minor = True)
+    ax.set_yticks([], minor = True)
+    # axTwin.set_yticks([], minor = True)
+    
+
+    if saveBool:
+        fig.savefig(
+            (_FIGURES_DIR + "/") + "SensitivityComparison2.svg", dpi=300, bbox_inches="tight",transparent=True
+        )
+        # figInset.savefig(
+        #     (_FIGURES_DIR + "/") + "SensitivityComparisonInset.svg", dpi=300, bbox_inches="tight",transparent=True
+        # )
+
+    plt.show()
+    
   
 def plotEtalonSensitivity1D(saveBool = False,
                             OmegaR = OmegaROpt,
@@ -3204,7 +3402,7 @@ def plotIRSpectrometerODMR(saveBool = False):
     ax.tick_params(axis='y', which='both', left=False, right=False)
     ax.tick_params(axis='x', pad=2)
     ax.tick_params(axis='y', pad=2)
-    ax.set_xticks([2.87])
+    ax.set_xticks([2.86, 2.87,2.88])
     ax.set_yticks([1,1.2])
     ax.set_ylim([1,1.2])
     # plt.figure()
@@ -3226,7 +3424,7 @@ def plotIRSpectrometerODMR(saveBool = False):
 def plotChangeInTransmissionCartoon(saveBool = False):
     fig, axArr = plot_custom(
        PRQuantumWidthHalf*1, 0.37*PRQuantumWidthFull, 
-       [r"$\Delta \omega_{\text{opt}}$",r"$\Delta \omega_{\text{MW}}$"], 
+       [r"$\Delta\omega_{\text{s}}$",r"$\Delta \omega_{\text{MW}}$"], 
        [r"$T$ (au)",r"$T$ (au)"],
        labelPadX = 3, labelPadY = 3, commonY = True, commonX = True, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
@@ -3352,7 +3550,7 @@ def plotChangeInTransmissionCartoon(saveBool = False):
 def plotChangeInTransmissionCartoon2(saveBool = False):
     fig, axArr = plot_custom(
        PRQuantumWidthHalf*1.1, 0.18*PRQuantumWidthFull, 
-       [r"$\Delta \omega_{\text{opt}}$",r"$\Delta \omega_{\text{MW}}$",r"$\Delta \omega_{\text{opt}}$",r"$\Delta \omega_{\text{MW}}$"], 
+       [r"$\Delta \omega_{\text{s}}$",r"$\Delta \omega_{\text{MW}}$",r"$\Delta \omega_{\text{s}}$",r"$\Delta \omega_{\text{MW}}$"], 
        r"$T$ (au)",
        labelPadX = 5, labelPadY = 3, commonY = True, commonX = False, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
@@ -3387,7 +3585,7 @@ def plotChangeInTransmissionCartoon2(saveBool = False):
     
     ax.plot(nu, T, lw = 0.2/0.358, color = colorLightRed)
     ax.plot(nu, T2, lw = 0.2/0.358, color = colorDarkRed)
-    axArr[1].plot(nu, T3-np.min(T3)+ np.min(T), lw = 0.2/0.358, color = colorBlue)
+    axArr[1].plot(nu, T3-np.min(T3)+ np.min(T), lw = 0.2/0.358, color = colorRed)
     
     ax = axArr[2]
     g = 0
@@ -3403,7 +3601,7 @@ def plotChangeInTransmissionCartoon2(saveBool = False):
     
     ax.plot(nu, T, lw = 0.2/0.358, color = colorLightRed)
     ax.plot(nu, T2, lw = 0.2/0.358, color = colorDarkRed)
-    axArr[3].plot(nu, T3-np.min(T3)+ np.min(T), lw = 0.2/0.358, color = colorBlue)
+    axArr[3].plot(nu, T3-np.min(T3)+ np.min(T), lw = 0.2/0.358, color = colorRed)
     
     
     
@@ -3534,7 +3732,7 @@ def plotNarrowTransmissionPaper(saveBool = False):
 def plotZeroFieldODMR(saveBool = False):
     """Zero-field ODMR contrast vs MW detuning at 4.2um: raw zero-field trace plus a fitted lineshape."""
     fig, ax = plot_custom(
-       PRQuantumWidthHalf*0.6, 0.3*PRQuantumWidthFull,
+       PRQuantumWidthHalf*0.65, 0.3*PRQuantumWidthFull,
        r"$\omega_{\text{MW}}/2\pi$ (MHz)",
        r'$\Delta T$ ($\times10^{-3}$)',
        labelPadX = 4, labelPadY = 6, commonY = False, commonX = True, wSpaceSetting=0,
@@ -3557,30 +3755,35 @@ def plotZeroFieldODMR(saveBool = False):
 
     # plot the bias field signal
     filePath = filepathODMR+ filenameODMR4p2umBiasLI1
-    deltaT, freqsODMR, _ = loadODMRDeltaT(filePath, scaleFactor = 1e3)
-    f = freqsODMR*1e-6-2776.76-30
+    deltaT, freqsODMR, _ = loadODMRDeltaT(filePath, scaleFactor = 1e3)    
+    xoffset = -50
+    f = freqsODMR*1e-6-2776.76+xoffset+0.01+3
 
     signalX = -np.mean(deltaT[:, 460:540], 1)*2 # peak to p2p
     ax.scatter(f, signalX, color=colorDarkBlue, marker = '.', s = 4, edgecolors='none', zorder = 10)
 
-    p0 = [nuOpt*1.05, -29.9e6, 0.145*10, 0] # initial guess
+    p0 = [nuOpt*1.05, xoffset*1e6, 0.145*10, 0] # initial guess
     popt, pcov = curve_fit(microwaveDetuning3, f*1e6, signalX, p0=p0) # fitted parameters
     perr = np.sqrt(np.diag(pcov))
     print('Fitted linewidth MHz: ', popt[0]/1e6, ' pm ', perr[0]/1e6)
 
-    fCont = np.linspace(-40, -20, 1000)
-    signal = microwaveDetuning3(fCont*1e6, nuOpt*1.05, -29.9e6, 0.145, 0)*2 # peak to p2p
+    fCont = np.linspace(xoffset-10, xoffset+15, 1000)
+    signal = microwaveDetuning3(fCont*1e6, nuOpt*1.05, xoffset*1e6, 0.145, 0)*2 # peak to p2p
     signal = microwaveDetuning3(fCont*1e6, *popt) # peak to p2p
     ax.plot(fCont, signal, color=colorBlue, lw=0.2/0.3528)
 
-    fmin = -40
-    fmax = 15
+    fmin = xoffset-10
+    fmax = 20
     Tmin = 0
     Tmax = np.max(zeroFieldDeltaT)
+    xticks = [xoffset, 0]
+    xticks = [xoffset-10, xoffset+10,-20, 0, 20]
+    xlabels = [2777, 2870]
+    xlabels = [2770, 2790, 2850,2870 ,2890]
     ax = makeTopLeftSpinesInvisible(ax, xlim=(fmin, fmax), ylim=(Tmin, Tmax),
-                                    xticks=[-29.9, 0], yticks=[Tmin, np.max(signal), Tmax],
+                                    xticks=xticks, yticks=[Tmin, np.max(signal), Tmax],
                                     limScale = 0.08, limScaleY = 0.05)
-    ax.set_xticklabels([rf"${val:.0f}$" for val in [2777, 2870]])
+    ax.set_xticklabels([rf"${val:.0f}$" for val in xlabels])
     ax.set_yticklabels([rf"${val:.2f}$" for val in ax.get_yticks()])
 
     if saveBool:
@@ -3595,7 +3798,7 @@ def plotWideTransmissionAndSignal(saveBool = False):
     fig, axArr = plot_custom(
        PRQuantumWidthHalf*0.45, 0.3*PRQuantumWidthFull,
        r"$\lambda$ (nm)",
-       [r'$T$ (au)',r'$\Delta T$ ($\times 10^{-4}$)'],
+       [r'$T$',r'$\Delta T$ ($\times 10^{-4}$)'],
        labelPadX = 4, labelPadY = 8, commonY = False, commonX = True, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
        nrow = 2, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize-1, numsize=numfontsize-1,
@@ -3604,7 +3807,48 @@ def plotWideTransmissionAndSignal(saveBool = False):
 
     lambmin = 1040
     lambmax = 1041.5
+    lamb0 = 1040.85 * 1e-9
+    nu0 = c_const/lamb0
+    nuBW = 200e9 
+    
+    #%%%% add other fit
+    
+    filePath = filepathTransmission + filenameTransmission4p2um
+    data = loadmat(filePath, squeeze_me=True)
+    P_in = 9.071006836633663e-06;
+     # Plot transmission data
+    W_nm, DeltanuGHz, TOut = loadAndFilterTransmissionData(filePath)
+    axArr[0].scatter(W_nm[1:]-0.05, TOut[1:], edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkRed)
+    
+    numin = nu0 - nuBW
+    numax = nu0 + nuBW
+    nuArr = np.linspace(numin, numax, 101)
+    
+    Veff = calcVeff()
+    g = 5e9
+    tau =1.004524991429497*np.exp(1j* -0.057891967231220)
+    kex1 = nu0/2.6e4
+    kex2 = kex1
+    ki1 = nu0/7.6e3
+    ki2 = ki1
+    
+    Delta = nuArr - nu0 
+    lambdaArr = c_const/nuArr
+    
+    deltaOmegaGHz = Delta*1e-9
+    
+    P_in *= np.sqrt(etaFibreIR)
+    p0 = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in.mean(), 1]
 
+    popt = p0
+    DeltaTFit, TMean = calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, Veff =Veff)
+
+    TMean/= TMean.max()
+    # Predict transmission based on change in transmission
+    axArr[0].plot(lambdaArr*1e9-0.125, TMean, lw = 0.2/0.3528, color = colorRed)
+    
+    #%%%%
+    
     # --- Panel 0 (top): wide transmission sweep, baseline-subtracted and peak-normalized ---
     filePath = 'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsResonanceSweeps/DNV_B14_QG3/4.2um_0/20260202/1030_1070nm_5nmps_averaged_norm.mat'
     data = loadmat(filePath, squeeze_me=True)
@@ -3616,8 +3860,9 @@ def plotWideTransmissionAndSignal(saveBool = False):
     filt = np.logical_and(W< lambmax, W>lambmin)
     W= W[filt]
     TOut= TOut[filt]
-    # [1:] drops the first (bad) point of the sweep
-    axArr[0].scatter(W[1:], TOut[1:], edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkRed)
+    # # [1:] drops the first (bad) point of the sweep
+    # axArr[0].scatter(W[1:], TOut[1:], edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkRed)
+    # axArr[0].plot(W[1:], TOut[1:], lw = lw, color = colorDarkRed)
 
     # --- Panel 1 (bottom): ODMR absorption contrast vs wavelength at a fixed MW frequency ---
     filePathAbs =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260129/ODMR_20260129_CW__16_12dBAtt_4.2um_0_1__2.7768GHz_0MHz_001.mat'
@@ -3635,7 +3880,8 @@ def plotWideTransmissionAndSignal(saveBool = False):
 
     # normalize out the per-point drive power to get a comparable contrast trace
     contrast = -deltaT/power*np.max(power)*1e4
-    axArr[1].scatter(W_nm-0.07, contrast, edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkBlue)
+    axArr[1].scatter(W_nm-0.07, contrast, edgecolors='none', marker = '.', s = 8, zorder = 10, color = colorDarkBlue)
+    axArr[1].plot(W_nm-0.07, contrast, lw = lw, color = colorDarkBlue)
 
     # --- Multi-mode microdisk coupled-mode theory overlay ---
     # For each cavity mode near this wavelength range, calcDeltaMicrodiskReturnT
@@ -3656,8 +3902,8 @@ def plotWideTransmissionAndSignal(saveBool = False):
     DeltaTFit, TMean,kabs0, kabs1, alphaOff, alphaOn= calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, printBool = True, Veff =Veff)
     TMean/= TMean.max()
 
-    axArr[0].plot(lambArr/1e-9, TMean*t, lw = 0.2/0.3528, color = colorLightRed)
-    axArr[1].plot(lambArr/1e-9, DeltaTFit*1e4, lw = 0.2/0.3528, color = colorBlue)
+    # axArr[0].plot(lambArr/1e-9, TMean*t, lw = 0.2/0.3528, color = colorLightRed)
+    # axArr[1].plot(lambArr/1e-9, (DeltaTFit)*1e4, lw = 0.2/0.3528, color = colorBlue)
 
     plt.tight_layout()
 
@@ -3841,10 +4087,12 @@ def plotNoiseFigure(saveBool = False):
         return np.log10((A**2)/t + (B**2) + (C**2)*t)
 
     p0 = [1e-1, 0, 10e-4]
-    popt, _ = curve_fit(allan_func, t2, np.log10(ad**2), p0=p0)
+    popt, pcov = curve_fit(allan_func, t2, np.log10(ad**2), p0=p0)
     sensitivityAD = popt[0]
-    print('Allan deviation extracted sensitivity: ', sensitivityAD*np.sqrt(2)*1000, ' nT')
-
+    perr = np.sqrt(np.diag(pcov))
+    sensitivityADErr = perr[0]
+    print('Allan deviation extracted sensitivity: ', sensitivityAD*np.sqrt(2)*1000, ' +/- ', sensitivityADErr*np.sqrt(2)*1000, ' nT')
+    print(popt)
     tCont = np.logspace(-2, 3, 1000)  # reused below for panel 1's x-axis bounds
     ad *= 1000
 
@@ -3898,9 +4146,9 @@ def plotNoiseFigure(saveBool = False):
 def plotDetuningExample(saveBool = False):
     """Parameter-definitions figure: transmission and ODMR contrast (vs optical and MW detuning) with a microdisk-model fit, plus a printed sensitivity estimate."""
     fig, axx = plot_custom(
-       PRQuantumWidthFull*1/4, PRQuantumWidthHalf*1, 
-       [ r'',r"$\Delta\omega_{\text{opt}}/2\pi$ (GHz)", r"$\Delta \omega_{\text{MW}}/2\pi$ (MHz)"], 
-       [r'',r'', r'$\Delta T$ ($\times 10^{-4}$)'],
+       PRQuantumWidthFull*0.22, PRQuantumWidthHalf*1, 
+       [ r'',r"$\Delta\omega_{\text{s}}/2\pi$ (GHz)", r"$\Delta \omega_{\text{MW}}/2\pi$ (MHz)"], 
+       [r'',r'', ''],
        labelPadX = 3, labelPadY = 1, commonY = False, commonX = False, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
        nrow = 3, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize-1, numsize=numfontsize-1,
@@ -3931,7 +4179,7 @@ def plotDetuningExample(saveBool = False):
     DeltaT_Smooth = gaussian_filter1d(DeltaT, sigma=20, axis=0)
     
     idx = 54
-    scale = 1000
+    scale = 10000
     skip = 20
     x = (c_const/W_nm/1e-9 - nu0)*1e-9
     y = DeltaT_Smooth[:, idx]*2 # peak to p2p
@@ -3983,14 +4231,15 @@ def plotDetuningExample(saveBool = False):
         return DeltaTFitLocal
 
     #                  kex1  kex2  ki1   ki2   g     tau  phi
-    lowerBounds = [    0,    0,    0,    0,    0,    0,   -np.pi]
-    upperBounds = [np.inf,np.inf,np.inf,np.inf,np.inf, 2,  np.pi]
-    poptFree, pcov = curve_fit(deltaTModel, x*1e9, y, p0=p0[:7], bounds=(lowerBounds, upperBounds))
-    perr = np.sqrt(np.diag(pcov))
-    for name, val, err in zip(['kex1', 'kex2', 'ki1', 'ki2', 'g', 'tau', 'phi'], poptFree, perr):
-        print(f'fitted {name}: {val:.4e}  +/-  {err:.2e}')
-    popt = list(poptFree) + [P_inFixed, scaleFixed]  # full 9-element form for the code below
+    # lowerBounds = [ kex1*0.8,kex2*0.8,ki1*0.8,ki2*0.8,g*0.8,    0.9,   -np.pi]
+    # upperBounds = [kex1*1.2,kex2*1.2,ki1*1.2,ki2*1.2,g*1.2, 1.1,  np.pi]
+    # poptFree, pcov = curve_fit(deltaTModel, x*1e9, y, p0=p0[:7], bounds=(lowerBounds, upperBounds))
+    # perr = np.sqrt(np.diag(pcov))
+    # for name, val, err in zip(['kex1', 'kex2', 'ki1', 'ki2', 'g', 'tau', 'phi'], poptFree, perr):
+    #     print(f'fitted {name}: {val:.4e}  +/-  {err:.2e}')
+    # popt = list(poptFree) + [P_inFixed, scaleFixed]  # full 9-element form for the code below
 
+    popt = p0
     DeltaTFit, TMean = calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, Veff =Veff)
 
     TMean/= TMean.max()
@@ -4006,11 +4255,12 @@ def plotDetuningExample(saveBool = False):
     # compare the measured vs modeled change in absorption coefficient
     # between MW-on and MW-off, as a consistency check on the fit
     skip = 106
-    Deltak = DeltaT2Deltak(y[1::skip], np.abs(tau), kex1, kex1 + ki1)
-    print('delta alpha /m: ', kappa2alpha(Deltak.max()*2*np.pi))
+    Deltak = DeltaT2Deltak(y.max(), np.abs(tau), kex1, kex1 + ki1)
+    print('Deltak MHz: ', Deltak/1e6)
+    print('delta alpha /m: ', kappa2alpha(Deltak*2*np.pi) , ' +/- ', kappa2alpha(Deltak*2*np.pi)*0.2/7.6)
 
     DeltaT0, T0, kabs0, kabs1, alphaOff, alphaOn =calcDeltaMicrodiskReturnT(np.array([0]), *popt, printBool = True, Veff =Veff)
-    print('Delta alpha model /m: ', alphaOn- alphaOff)
+    # print('Delta alpha model /m: ', alphaOn- alphaOff)
     print('alpha off model /m: ', kappa2alpha((kabs0)*2*np.pi))
 
     [kex1, kex2, ki1, ki2, g, tauabs, phi, pin, scaleNew] = popt
@@ -4031,7 +4281,7 @@ def plotDetuningExample(saveBool = False):
     idx = 500
     N = 30
     u = fExp-0.1
-    v = np.mean(DeltaT_Smooth[idx-N:idx+N, :],0)*1e4*2 # peak to p2p
+    v = np.mean(DeltaT_Smooth[idx-N:idx+N, :],0)*scale*2 # peak to p2p
     skip = 2
     axx[2].scatter(u[1::skip], v[1::skip], edgecolors='none', marker = '.', s =5, zorder = 10, color = colorDarkBlue)
            
@@ -4044,18 +4294,18 @@ def plotDetuningExample(saveBool = False):
     print('fitted ODMR linewidth (MHz):', popt[0]/1e6 , ' pm ', perr[0]/1e6)
     
     TMax = microwaveDetuning3(0, popt[0], 0, popt[2], popt[3])
-    TMin = microwaveDetuning3(hyperfine/2*1.1, popt[0], 0, popt[2], popt[3])
-    C = (TMax-TMin)*1e-4/TMean.min()
+    TMin = microwaveDetuning3(hyperfine/2*1.2, popt[0], 0, popt[2], popt[3])
+    C = (TMax-TMin)/TMean.min()*1e-4
     dC = C*perr[2]/popt[2]
     print('C:', C , ' pm ', dC)
-    print('Delta T:', (TMax-TMin)*1e-4)
+    print('Delta T * 1e4:', TMax, ' pm ', (TMax)*perr[2]/popt[2])
 
     # shot-noise-limited field sensitivity from the fitted contrast/linewidth,
     # with uncertainty propagated from the fit
-    etaSNL = calcSensitivityCW(popt[0], C, P_det.min(), lamb_s)
-    detaSNL = calcSensitivityCWUncertainty(popt[0], perr[0], C, dC, P_det.min(), P_det.min()*0.2, lamb_s)
+    etaSNL = calcSensitivityCW(popt[0], C, P_det.min(), lamb0)
+    detaSNL = calcSensitivityCWUncertainty(popt[0], perr[0], C, dC, P_det.min(), P_det.min()*0.3, lamb0)
 
-    print('Pdet', P_det.min())
+    print('Pdet', P_det.min(), ' pm ',  P_det.min()*0.3)
     print('eta nT:', etaSNL*1e9, ' pm ', detaSNL*1e9)
     
     axx[1].plot(deltaOmegaGHz, DeltaTFit*scale, lw = 0.2/0.3528, color = colorBlue)
@@ -4063,7 +4313,7 @@ def plotDetuningExample(saveBool = False):
     #%%%% Plot change in transmission fit with MW det 2
     TMWsingle1 = lorentzianSingleWithAmplitude(f, nuOpt, 0, amp)
     axx[2].plot(f/1e6, TMWsingle1, lw = 0.2/0.3528, color = 'k', linestyle = '--')
-    TMW = microwaveDetuning3(f, nuOpt, 0, amp, 4.02066788e-01)
+    TMW = microwaveDetuning3(f,popt[0], 0, popt[2], popt[3])
 
     axx[2].plot(f/1e6, TMW, lw = 0.2/0.3528, color = colorBlue)
 
@@ -4093,8 +4343,8 @@ def plotDetuningExample(saveBool = False):
     ax = makeTopLeftSpinesInvisible(ax, xlim=(deltaOmegaGHzMin, deltaOmegaGHzMax), ylim=(Tmin, Tmax),
                                     xticks=[-200, 200], yticks=[Tmin, Tmax])
     ax.set_xlim([deltaOmegaGHzMin-40, deltaOmegaGHzMax])
-    ax.set_ylim([Tmin-0.1, Tmax+0.04])
-    ax.set_yticklabels([rf"${val:.2f}$" for val in ax.get_yticks()])
+    ax.set_ylim([Tmin-1, Tmax+0.4])
+    ax.set_yticklabels([rf"${val:.1f}$" for val in ax.get_yticks()])
     ax.yaxis.set_label_coords(-0.15, 1.1)
 
     # Panel 2 (change in transmission vs MW detuning); Tmax carries over
@@ -4102,7 +4352,7 @@ def plotDetuningExample(saveBool = False):
     plt.tight_layout()
     ax = axx[2]
     ax.yaxis.set_label_coords(-0.18, 1.1)
-    Tmax *= 10
+    Tmax *= 1
     ax = makeTopLeftSpinesInvisible(ax, xlim=(fmin/1e6, fmax/1e6), ylim=(0, Tmax),
                                     yticks=[0, 1, Tmax])
     ax.set_xlim([fmin/1e6-0.7, fmax/1e6])
@@ -4124,17 +4374,274 @@ def plotDetuningExample(saveBool = False):
     axx[0].yaxis.set_label_coords(-0.16, 1.05)
     
     
-    axx[0].text(-220, 1.11, r"$T$ (au)", color=colorRed,
+    axx[0].text(-220, 1.13, r"$T$", color=colorRed,
          ha='right', fontsize = labelfontsize-1)
-    axx[0].text(-220, 1.29, r"$\Delta T$ (au)", color=colorBlue,
+    axx[0].text(-220, 1.32, r"$\Delta T$", color=colorBlue,
          ha='right', fontsize = labelfontsize-1)
+    
+    axx[2].text(-7, 4.2, r"$\Delta T$ ($\times 10^{-4}$)", color=colorBlue,
+         ha='left', fontsize = labelfontsize-1)
 
     
     axx[2].yaxis.set_label_coords(-0.04, 1.07)
     axx[1].xaxis.set_label_coords(0.55, -0.45)
     
     
-    fig.subplots_adjust(hspace=0.9)
+    fig.subplots_adjust(hspace=1)
+
+    if saveBool:
+        fig.savefig(
+            (_FIGURES_DIR + "/") + "parameterDefinitions.svg", dpi=300, bbox_inches="tight",transparent=True
+        )
+
+    plt.show()
+    
+def plotDetuningExample2(saveBool = False):
+    """Parameter-definitions figure: transmission and ODMR contrast (vs optical and MW detuning) with a microdisk-model fit, plus a printed sensitivity estimate."""
+    fig, axx = plot_custom(
+       PRQuantumWidthFull*0.25, PRQuantumWidthHalf*0.9, 
+       [r"$\Delta\omega_{\text{s}}/2\pi$ (GHz)", r"$\Delta \omega_{\text{MW}}/2\pi$ (MHz)"], 
+       [r'$\Delta T\,(\times10^{-4})$',r'$\Delta T\,(\times10^{-4})$'],
+       labelPadX = 4, labelPadY = 2, commonY = False, commonX = False, wSpaceSetting=0,
+       spineColor = 'black', tickColor = 'black', textColor = 'black',
+       nrow = 2, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize-1, numsize=numfontsize-1,
+       widthBool =True, widthRatios=[1], heightRatios=[0.5,0.5]
+    )
+    
+    
+    filePath = filepathTransmission + filenameTransmission4p2um
+
+    #%%%% Plot transmission data
+    W_nm, DeltanuGHz, TOut = loadAndFilterTransmissionData(filePath)
+    # axx[0].scatter(DeltanuGHz[1:], TOut[1:], edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkRed)
+    
+    filePath = filepathODMR+ filenameODMR4p2umBiasLI1
+    
+    lamb0 = 1040.85 * 1e-9
+    nu0 = c_const/lamb0
+    nuBW = 200e9 
+    f0GHz = 2776.7
+    
+    #%%%% Plot ODMR line data 
+    W_nm, S_V, DeltaT, C, P_in, DeltanuGHz, DeltaW_nm, fExp, DC_V = loadODMRData(filePath, lamb0nm = lamb0 * 1e9, 
+                     lambbwnm = 2, f0GHz = f0GHz, nuOptbwGHz = nuBW*1e-9, fbwGHz = 10, 
+                     powerScaling = 99/2, boolFreqFiltering = True, idx = 2, bgOffset = 3.5e-3)
+    DC_VMean = np.mean(DC_V, 1)
+    DC_VMean /= DC_VMean.max()
+    
+    DeltaT_Smooth = gaussian_filter1d(DeltaT, sigma=20, axis=0)
+    
+    idx = 54
+    scale = 10000
+    skip = 20
+    x = (c_const/W_nm/1e-9 - nu0)*1e-9
+    y = DeltaT_Smooth[:, idx]*2 # peak to p2p
+    axx[0].scatter(x[1::skip], y[1::skip]*scale, edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkBlue)
+    DeltaTMaxExp = y.max()*scale
+
+    #%%%% Plot transmission fit
+    
+    numin = nu0 - nuBW
+    numax = nu0 + nuBW
+    nuArr = np.linspace(numin, numax, 101)
+    
+    Veff = calcVeff()
+    g = 5e9
+    tau =1.004524991429497*np.exp(1j* -0.057891967231220)
+    kex1 = nu0/2.6e4
+    kex2 = kex1
+    ki1 = nu0/7.6e3
+    ki2 = ki1
+    
+    
+    Delta = nuArr - nu0 
+    
+    deltaOmegaGHz = Delta*1e-9
+    deltaOmegaGHzMin = deltaOmegaGHz.min()
+    deltaOmegaGHzMax = deltaOmegaGHz.max()
+    
+    #%%%% Plot change in transmission fit with wavelength
+    print('Pin in the fiber input: ', P_in.mean(), ' +/- ',  P_in.mean()*0.1) # 10% uncertainty
+    P_in *= np.sqrt(etaFibreIR)
+    p0 = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in.mean(), 1]
+
+    # Fit the microdisk model to the measured change-in-transmission data
+    # (x, y) to get the best-fit cavity parameters and their uncertainties.
+    # P_in and scale are held fixed rather than fit: P_in is independently
+    # measured above, and scale=1 is a calibration identity, not a free
+    # cavity parameter. This still doesn't fully separate kex1/kex2/ki1/ki2
+    # from each other (fitting all 9 including P_in/scale gave a covariance
+    # matrix with condition number ~1e37 and correlations >0.95 between
+    # kex1/ki1/kex2/scale -- a single Delta-T-vs-detuning curve just doesn't
+    # independently constrain that many coupled parameters), but it removes
+    # two of the most-correlated ones. Bounded to physical ranges
+    # (rates >= 0, tau <= 2, phi within a cycle).
+    P_inFixed = P_in.mean()
+    scaleFixed = 1
+
+    def deltaTModel(freqHz, kex1_, kex2_, ki1_, ki2_, g_, tauAbs_, phi_):
+        DeltaTFitLocal, _ = calcDeltaMicrodiskReturnT(freqHz, kex1_, kex2_, ki1_, ki2_, g_, tauAbs_, phi_,
+                                                        P_inFixed, scaleFixed, Veff=Veff)
+        return DeltaTFitLocal
+
+    #                  kex1  kex2  ki1   ki2   g     tau  phi
+    # lowerBounds = [ kex1*0.8,kex2*0.8,ki1*0.8,ki2*0.8,g*0.8,    0.9,   -np.pi]
+    # upperBounds = [kex1*1.2,kex2*1.2,ki1*1.2,ki2*1.2,g*1.2, 1.1,  np.pi]
+    # poptFree, pcov = curve_fit(deltaTModel, x*1e9, y, p0=p0[:7], bounds=(lowerBounds, upperBounds))
+    # perr = np.sqrt(np.diag(pcov))
+    # for name, val, err in zip(['kex1', 'kex2', 'ki1', 'ki2', 'g', 'tau', 'phi'], poptFree, perr):
+    #     print(f'fitted {name}: {val:.4e}  +/-  {err:.2e}')
+    # popt = list(poptFree) + [P_inFixed, scaleFixed]  # full 9-element form for the code below
+
+    popt = p0
+    DeltaTFit, TMean = calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, Veff =Veff)
+
+    TMean/= TMean.max()
+    P_det = P_in.mean()*TMean*np.sqrt(etaFibreIR)*etaPostFibre
+
+    # intracavity photon number / equivalent intensity at the drive power used
+    a = np.abs(calcIntracavityField(popt[0], popt[0] + popt[2], popt[1], popt[1]+ popt[3], Delta, popt[4]))
+    NcavMax = calcPhotonsInCavity(a.max(), P_in.mean())
+    print('lambda0: ', lamb0)
+    Imax = NtoI1042(NcavMax)
+    print('Max intensity MW/cm^2: ', Imax, ' +/- ', Imax*0.3) # 30% uncertainty 
+
+    # compare the measured vs modeled change in absorption coefficient
+    # between MW-on and MW-off, as a consistency check on the fit
+    skip = 106
+    Deltak = DeltaT2Deltak(y.max(), np.abs(tau), kex1, kex1 + ki1)
+    print('Deltak MHz: ', Deltak/1e6)
+    print('delta alpha /m: ', kappa2alpha(Deltak*2*np.pi) , ' +/- ', kappa2alpha(Deltak*2*np.pi)*0.2/7.6)
+
+    DeltaT0, T0, kabs0, kabs1, alphaOff, alphaOn =calcDeltaMicrodiskReturnT(np.array([0]), *popt, printBool = True, Veff =Veff)
+    # print('Delta alpha model /m: ', alphaOn- alphaOff)
+    print('alpha off model /m: ', kappa2alpha((kabs0)*2*np.pi))
+
+    [kex1, kex2, ki1, ki2, g, tauabs, phi, pin, scaleNew] = popt
+    tau = 1*np.exp(1j*phi)
+
+    #%%%% Predict transmission based on change in transmission
+    # axx[0].plot(deltaOmegaGHz, TMean, lw = 0.2/0.3528, color = colorRed)
+    
+    
+    #%%%% Plot change in transmission fit with MW det
+    fBW = 5e6
+    fmin = -fBW
+    fmax = fBW
+    f = np.linspace(fmin, fmax, 1000)
+    amp = DeltaTMaxExp/scale * 1e4*0.75
+
+    #%%%% Plot change in transmission with microwave detuning
+    idx = 500
+    N = 30
+    u = fExp-0.1
+    v = np.mean(DeltaT_Smooth[idx-N:idx+N, :],0)*scale*2 # peak to p2p
+    skip = 2
+    axx[1].scatter(u[1::skip], v[1::skip], edgecolors='none', marker = '.', s =5, zorder = 10, color = colorDarkBlue)
+           
+    p0 = [1e6, 0, 1, 0]
+    lower_bounds = [1e5, -1e6, 1e-2, -1]
+    upper_bounds = [2e6, 1e6, 1e1, 1]
+    
+    popt, pcov = curve_fit(microwaveDetuning3, u*1e6, v, p0=p0,    bounds=(lower_bounds, upper_bounds))
+    perr = np.sqrt(np.diag(pcov))
+    print('fitted ODMR linewidth (MHz):', popt[0]/1e6 , ' pm ', perr[0]/1e6)
+    
+    TMax = microwaveDetuning3(0, popt[0], 0, popt[2], popt[3])
+    TMin = microwaveDetuning3(hyperfine/2*1.2, popt[0], 0, popt[2], popt[3])
+    C = (TMax-TMin)/TMean.min()*1e-4
+    dC = C*perr[2]/popt[2]
+    print('C:', C , ' pm ', dC)
+    print('Delta T * 1e4:', TMax, ' pm ', (TMax)*perr[2]/popt[2])
+
+    # shot-noise-limited field sensitivity from the fitted contrast/linewidth,
+    # with uncertainty propagated from the fit
+    etaSNL = calcSensitivityCW(popt[0], C, P_det.min()/(np.sqrt(etaFibreIR)*etaPostFibre), lamb0)
+    detaSNL = calcSensitivityCWUncertainty(popt[0], perr[0], C, dC, P_det.min(), P_det.min()*0.3, lamb0)
+
+    print('Pdet', P_det.min(), ' pm ',  P_det.min()*0.3)
+    print('eta nT:', etaSNL*1e9, ' pm ', detaSNL*1e9)
+    
+    axx[0].plot(deltaOmegaGHz, DeltaTFit*scale, lw = 0.2/0.3528, color = colorBlue)
+
+    #%%%% Plot change in transmission fit with MW det 2
+    TMWsingle1 = lorentzianSingleWithAmplitude(f, nuOpt, 0, amp)
+    axx[1].plot(f/1e6, TMWsingle1, lw = 0.2/0.3528, color = 'k', linestyle = '--')
+    TMW = microwaveDetuning3(f,popt[0], 0, popt[2], popt[3])
+
+    axx[1].plot(f/1e6, TMW, lw = 0.2/0.3528, color = colorBlue)
+
+    #%%%% Set plot settings
+    # Panel 0 (transmission): shares its x-axis with panel 1 below, so its
+    # own bottom spine/ticks stay hidden. tight_layout() is called fresh
+    # before each panel below (matching the original), since it accounts for
+    # tick-label sizes at call time and later panels' relabeling can change
+    # the required margins.
+    plt.tight_layout()
+    # ax = axx[0]
+    # (Tmin, Tmax) = axx[0].get_ylim()
+    # ax = makeTopLeftSpinesInvisible(ax, xlim=(deltaOmegaGHzMin, deltaOmegaGHzMax), ylim=(Tmin, 1),
+    #                                 yticks=[Tmin, 1])
+    # ax.set_xlim([deltaOmegaGHzMin-40, deltaOmegaGHzMax])
+    # ax.set_ylim([Tmin, 1.02])
+    # ax.spines["bottom"].set_visible(False)
+    # ax.set_xticks([])
+    # ax.set_yticklabels([rf"${val:.2f}$" for val in ax.get_yticks()])
+    # ax.yaxis.set_label_coords(-0.15, 1.1)
+
+    # Panel 1 (ODMR change in transmission vs optical detuning)
+    plt.tight_layout()
+    ax = axx[0]
+    (Tmin, Tmax) = axx[0].get_ylim()
+    Tmax = np.max(y[1::skip]*scale)
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(deltaOmegaGHzMin, deltaOmegaGHzMax), ylim=(Tmin, Tmax),
+                                    xticks=[-200, 200], yticks=[Tmin, Tmax])
+    ax.set_xlim([deltaOmegaGHzMin-40, deltaOmegaGHzMax])
+    ax.set_ylim([Tmin-1, Tmax+0.4])
+    ax.set_yticklabels([rf"${val:.1f}$" for val in ax.get_yticks()])
+    # ax.yaxis.set_label_coords(-0.15, 1.1)
+
+    # Panel 2 (change in transmission vs MW detuning); Tmax carries over
+    # (scaled x10) from panel 1 to keep the two panels' y-ranges related
+    plt.tight_layout()
+    ax = axx[1]
+    # ax.yaxis.set_label_coords(-0.18, 1.1)
+    Tmax *= 1
+    ax = makeTopLeftSpinesInvisible(ax, xlim=(fmin/1e6, fmax/1e6), ylim=(0, Tmax),
+                                    yticks=[0, 1, Tmax])
+    ax.set_xlim([fmin/1e6-0.7, fmax/1e6])
+    ax.set_ylim([-0.3, Tmax+0.2])
+    ax.set_yticklabels([rf"${val:.1f}$" for val in ax.get_yticks()])
+
+    for ax in axx:
+        ax.spines["right"].set_visible(False)
+        ax.spines["top"].set_visible(False)
+        ax.yaxis.set_ticks_position('left')
+        ax.tick_params(axis='y', which='both', left=True, right=False, labelleft=True)
+        ax.tick_params(axis='x', which='both', top=False, bottom=True)
+        
+        ax.xaxis.set_label_position("bottom")
+        ax.xaxis.set_ticks_position('bottom')
+        # ax.set_ylabel(ax.get_ylabel(), rotation=0)   # horizontal
+        # ax.xaxis.set_label_coords(0.55,-0.27)
+        
+    # axx[0].yaxis.set_label_coords(-0.16, 1.05)
+    
+    
+    # axx[0].text(-220, 1.13, r"$T$", color=colorRed,
+    #      ha='right', fontsize = labelfontsize-1)
+    # axx[0].text(-220, 1.32, r"$\Delta T$", color=colorBlue,
+    #      ha='right', fontsize = labelfontsize-1)
+    
+    # axx[2].text(-7, 4.2, r"$\Delta T$ ($\times 10^{-4}$)", color=colorBlue,
+    #      ha='left', fontsize = labelfontsize-1)
+
+    
+    # axx[2].yaxis.set_label_coords(-0.04, 1.07)
+    # axx[1].xaxis.set_label_coords(0.55, -0.45)
+    
+    
+    fig.subplots_adjust(hspace=0.5)
 
     if saveBool:
         fig.savefig(
@@ -4146,9 +4653,9 @@ def plotDetuningExample(saveBool = False):
     
 def plotMicrodiskTheorySensitivityDeltaTvsMWDet(saveBool = False):
     fig, ax = plot_custom(
-       PRQuantumWidthFull*1/3, PRQuantumWidthHalf * 1, 
+       PRQuantumWidthFull*0.3, PRQuantumWidthHalf * 1, 
        r'$\Delta \omega_{\text{MW}}/2\pi$ (MHz)', 
-       [r'$\Delta \omega_{\text{opt}}/2\pi$ (GHz)', r'$\Delta \omega_{\text{opt}}/2\pi$ (GHz)'],
+       [r'$\Delta\omega_{\text{s}}/2\pi$ (GHz)', r'$\Delta\omega_{\text{s}}/2\pi$ (GHz)'],
        labelPadX = 5, labelPadY = 8, commonY = False, commonX = True, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
        nrow = 2, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize-1, numsize=numfontsize-1,
@@ -4184,9 +4691,6 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDet(saveBool = False):
     
     DeltaNu = nu - nu0 
     
-    # popt = ([11077945096.648079, 11077945096.648079, 37898233225.37501, 37898233225.37501, 
-    #          5000000000.0, 1.004524991429497, -0.057891967231220004, 9.071006836633663e-06, 1])
-    
     g = 5e9
     tau =1.004524991429497*np.exp(1j* -0.057891967231220)
     kex1 = nu0/2.6e4
@@ -4194,20 +4698,24 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDet(saveBool = False):
     ki1 = nu0/7.6e3
     ki2 = ki1
     
-    #%%%% Plot change in transmission fit with wavelength
-    P_in = 9.071006836633663e-06
-    popt = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in*1.36/1.01, 1]
-    DeltaT, TMean= calcDeltaMicrodiskReturnT(DeltaNu, *popt)
-    
-    DeltaTMat = np.outer(DeltaT, ODMR)
-    
-    fMWmat, DeltaNumat = np.meshgrid(fMW, DeltaNu)
     
     
     # load and plot data
     filePath = filepathODMR+ filenameODMR4p2umBiasLI1
     data = loadmat(filePath, squeeze_me=True)
     data = data['data']
+    
+    
+    #%%%% Plot change in transmission fit with wavelength
+    P_in =  1.8142013673267325e-05*np.sqrt(etaFibreIR)
+    P_in = np.mean(data['powerIn'].mean())*99/2*np.sqrt(etaFibreIR)*1.1
+    popt = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in, 1]
+    DeltaT, TMean= calcDeltaMicrodiskReturnT(DeltaNu, *popt)
+    
+    DeltaTMat = np.outer(DeltaT, ODMR)
+    
+    fMWmat, DeltaNumat = np.meshgrid(fMW, DeltaNu)
+    
     
     lambmin, lambmax = 1040.75-1, 1040.95+1
     W_nm = data['laserWLsRead'].item()
@@ -4456,23 +4964,23 @@ def plotMicrodiskTheorySensitivitykcavkex(saveBool = False):
 
     ax.plot(ki, ki+ kabs, 'k', lw = 0.2/0.3528)
     
-    p0 = [11077945096.648079, 11077945096.648079, 37898233225.37501, 37898233225.37501, 5000000000.0, np.float64(1.004524991429497), np.float64(-0.057891967231220004), np.float64(9.071006836633663e-06), 1.0]
+    p0 = [11077945096.648079, 11077945096.648079, 37898233225.37501, 37898233225.37501, 5000000000.0, 1.004524991429497, -0.057891967231220004, 9.071006836633663e-06, 1]
     
     kex = (p0[0] + p0[1])/2
-    ki =  (p0[2] + p0[3])/2 - kabs0
+    ki =  (p0[2] + p0[3])/2 - kabs
     T0 = calcTransmissionSinglet(kex, kabs0 + ki, 0, tau = 1)
     T1 = calcTransmissionSinglet(kex, kabs1 + ki, 0, tau = 1)
     T = (T0 + T1)/2
-    DeltaT = (T1-T0    )/3.4
+    DeltaT = (T1-T0    )/3.6
     C = DeltaT/(T)  
     
     Veff = calcVeff()
     
 
-    aMicrodiskHighQ = aMicrodiskOnRes(kabs, (p0[2] + p0[3])/2, (p0[0] + p0[1])/2)
-    P = aMicrodiskRes2PinFibre(Veff, I_sOpt, aMicrodiskHighQ)
+    aMicrodisk = aMicrodiskOnRes(0, ki + kabs, kex)
+    P = aMicrodiskRes2PinFibre(Veff, I_sOpt, aMicrodisk)
     P_det = P*T*np.sqrt(etaFibreIR)*etaPostFibre
-    print('ideal power : ', P)
+    print('ideal input power : ', P/np.sqrt(etaFibreIR))
     print('ideal C : ', C)
     print('ideal DeltaT : ', DeltaT)
     # print('ideal ODMR linewidth High Q: ', nuOpt)
@@ -4485,13 +4993,14 @@ def plotMicrodiskTheorySensitivitykcavkex(saveBool = False):
     ax.scatter( (p0[2] + p0[3])/2 - (kabs0 + kabs1)/2, (p0[0] + p0[1])/2, marker = '*', facecolor = 'gold', s = 25, edgecolors='black', linewidths = 0.15/0.3528)
     
     #High Q mode
-    p0 = [1439358456.3236377, 1799198070.4045472, 7575570822.755988, 8224905464.706502, 9000000000.0, np.float64(0.9999999999999999), np.float64(-0.2), np.float64(7.4177169326732685e-06)*0.5, 1]
-
+    p0 = [1439358456.3236377, 2398930760.5393963, 7996435868.464655, 8224905464.706502, 9000000000.0, 0.9999999999999999, -0.2, 8.429223787128712e-06, 0.6]
     
-    kex = (p0[0] + p0[1])/2
-    ki =  (p0[2] + p0[3])/2 - kabs0
-    T0 = calcTransmissionSinglet(kex, kabs0 + ki, 0, tau = 1)
-    T1 = calcTransmissionSinglet(kex, kabs1 + ki, 0, tau = 1)
+    kex1 = (p0[0])
+    kex2 = (p0[1])
+    ki1 =  (p0[2]) - kabs0
+    ki2 =  (p0[3]) - kabs0
+    T0 = calcTransmission(kex1, kex2,ki1+kabs0,ki2+kabs0,4.5e9,9e9,1)
+    T1 = calcTransmission(kex1, kex2,ki1+kabs1,ki2+kabs1,4.5e9,9e9,1)
     T = (T0 + T1)/2
     DeltaT = (T1-T0 )/3.4   
     C = DeltaT/(T)
@@ -4501,7 +5010,7 @@ def plotMicrodiskTheorySensitivitykcavkex(saveBool = False):
     aMicrodiskHighQ = aMicrodiskOnRes(kabs, (p0[2] + p0[3])/2, (p0[0] + p0[1])/2)
     P = aMicrodiskRes2PinFibre(Veff, I_sOpt, aMicrodiskHighQ)
     P_det = P*T*np.sqrt(etaFibreIR)*etaPostFibre
-    print('ideal power High Q: ', P)
+    print('ideal power High Q: ', P/np.sqrt(etaFibreIR))
     print('ideal C High Q: ', C)
     print('ideal DeltaT High Q: ', DeltaT)
     # print('ideal ODMR linewidth High Q: ', nuOpt)
@@ -4511,7 +5020,7 @@ def plotMicrodiskTheorySensitivitykcavkex(saveBool = False):
     
     
     
-    print('etaSNLHighQ: ', etaSNLHighQ)
+    print('ideal etaSNLHighQ: ', etaSNLHighQ)
     etaSNLHighQ = np.log10(etaSNLHighQ)
     
     ax.scatter( (p0[2] + p0[3])/2 - (kabs0 + kabs1)/2, (p0[0] + p0[1])/2, marker = '*', facecolor = 'black', s = 10, edgecolors='black', linewidths = 0.15/0.3528)
@@ -4918,30 +5427,28 @@ def plotMicrodiskTheoryCompareCalcVsSimple(saveBool = False):
 
 #%%% Figure 8
 def plotLitReview(saveBool=False):
-    import pandas as pd
-    import numpy as np
 
     data = [
-        {
-            "year": 2008,
-            "url": "https://www.nature.com/articles/nphys1075#Sec2",
-            "sensitivity_nTpRootHz": 1e3,
-            "volume_mm3": (100e-6)**3,
-            "green_power_uW": None,
-            "largest_dimension_nm": 100,
-            "type": 'Single',
-            "bibtex": "Taylor2008"
-        },
-        {
-            "year": 2008,
-            "url": "https://www.nature.com/articles/nature07279",
-            "sensitivity_nTpRootHz": 0.5e3,
-            "volume_mm3": (100e-6)**3,
-            "green_power_uW": None,
-            "largest_dimension_nm": 100,
-            "type": 'Single',
-            "bibtex": "Maze2008"
-        },
+        # {
+        #     "year": 2008,
+        #     "url": "https://www.nature.com/articles/nphys1075#Sec2",
+        #     "sensitivity_nTpRootHz": 1e3,
+        #     "volume_mm3": (100e-6)**3,
+        #     "green_power_uW": None,
+        #     "largest_dimension_nm": 100,
+        #     "type": 'Single',
+        #     "bibtex": "Taylor2008"
+        # },
+        # {
+        #     "year": 2008,
+        #     "url": "https://www.nature.com/articles/nature07279",
+        #     "sensitivity_nTpRootHz": 0.5e3,
+        #     "volume_mm3": (100e-6)**3,
+        #     "green_power_uW": None,
+        #     "largest_dimension_nm": 100,
+        #     "type": 'Single',
+        #     "bibtex": "Maze2008"
+        # },
         {
             "year": 2013,
             "url": "https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.110.130802#supplemental",
@@ -4972,16 +5479,16 @@ def plotLitReview(saveBool=False):
             "type": 'Ensemble',
             "bibtex": "Barry2016"
         },
-        {
-            "bibtex": "Pelliccione2016",
-            "year": 2016,
-            "url": "https://doi.org/10.1038/nnano.2016.68",
-            "sensitivity_nTpRootHz": 3e3,
-            "volume_mm3": (10e-6)**2*200e-6,
-            "green_power_uW": 30,
-            "largest_dimension_nm": 6,
-            "type": 'Single'
-        },
+        # {
+        #     "bibtex": "Pelliccione2016",
+        #     "year": 2016,
+        #     "url": "https://doi.org/10.1038/nnano.2016.68",
+        #     "sensitivity_nTpRootHz": 3e3,
+        #     "volume_mm3": (10e-6)**2*200e-6,
+        #     "green_power_uW": 30,
+        #     "largest_dimension_nm": 6,
+        #     "type": 'Single'
+        # },
         {
             "year": 2020,
             "url": "https://journals.aps.org/prapplied/abstract/10.1103/PhysRevApplied.14.044058",
@@ -5123,8 +5630,8 @@ def plotLitReview(saveBool=False):
             "cavityBool": True
         },
         {
-            "bibtex": "TayefehYounesi",
-            "year": 2024,
+            "bibtex": "TayefehYounesi2025",
+            "year": 2025,
             "url": None,
             "sensitivity_nTpRootHz": 0.018,
             "volume_mm3": 2.6*np.pi*0.02**2,
@@ -5149,14 +5656,15 @@ def plotLitReview(saveBool=False):
         # },
         {
             "bibtex": "OurWork",
-            "year": 2025,
+            "year": 2026,
             "url": None,
             "sensitivity_nTpRootHz": 253,
-            "volume_mm3": 0.8 * np.pi * ((4.2/2) ** 2) * 1e-9,
+            # "volume_mm3": 0.8 * np.pi * ((4.2/2) ** 2) * 1e-9,
+            "volume_mm3": calcVeff()*1e9,
             "green_power_uW": 250,
             "IR_power_W": 1e-6,
-            "length_um": np.pi*2*(4.2/2),
-            'area_um2': 0.6**2,
+            "length_um": np.pi*2*(1.9),
+            'area_um2': calcVeff()*1e18/(np.pi*2*(1.9)),
             "type": 'EnsembleIR',
             "cavityBool": True
         },
@@ -5164,12 +5672,13 @@ def plotLitReview(saveBool=False):
             "bibtex": "OurWorkImproved",
             "year": 2025,
             "url": None,
-            "sensitivity_nTpRootHz": 13*np.sqrt(etaFibreIR*etaPostFibre),
-            "volume_mm3": 0.8 * np.pi * ((4.2/2) ** 2) * 1e-9,
+            "sensitivity_nTpRootHz": 1,
+            # "volume_mm3": 0.8 * np.pi * ((4.2/2) ** 2) * 1e-9,
+            "volume_mm3": calcVeff()*1e9,
             "green_power_uW": 250,
             "IR_power_W": 1e-6,
-            "length_um": np.pi*2*(4.2/2),
-            'area_um2': 0.6**2,
+            "length_um": np.pi*2*(1.9),
+            'area_um2': calcVeff()*1e18/(np.pi*2*(1.9)),
             "type": 'EnsembleIR',
             "cavityBool": True
         },
@@ -5178,45 +5687,43 @@ def plotLitReview(saveBool=False):
     df = pd.DataFrame(data)
 
     fig, axArr = plot_custom(
-        PRQuantumWidthFull*0.49, 0.6*PRQuantumWidthFull,
+        PRQuantumWidthHalf, 0.55*PRQuantumWidthFull,
         [r"sampled volume, $\delta V$ (mm$^3$)",r"length, $L$ (m)"],
         [r"sensitivity, $\eta$ (nT$\,$Hz$^{-1/2}$)", r"$\eta \sqrt{A}$ (nT$\,$Hz$^{-1/2}$m)"],
-        labelPadX=3, labelPadY=10, commonY=False, commonX=False,
+        labelPadX=3, labelPadY=5, commonY=False, commonX=False,
         wSpaceSetting=0, hSpaceSetting=0,
         spineColor='black', tickColor='black', textColor='black',
         nrow=2, fontType='BeraSans', axefont=labelfontsize,
         numsize=numfontsize, widthBool=False
     )
     ax = axArr[0]
-
-    s = 20
-    
+    # ax.grid(zorder = -1)
     date_sorted = df.sort_values(by='year')
 
     texts = []
-    for idx, (i, row) in enumerate(date_sorted.iterrows(), start=1):
-        print('i = ',rf'$\mathbf{{\mathrm{{{idx}}}}}$', '  ' , row['bibtex'])
-        if not(row['type'] == "Single") & (row['bibtex'] != "OurWork")& (row['bibtex'] != "OurWorkImproved"):
-            continue
-        ax.scatter(
-            row['volume_mm3'],
-            row['sensitivity_nTpRootHz'],
-            color=colorBlue,
-            s=2
-        )
+    # for idx, (i, row) in enumerate(date_sorted.iterrows(), start=1):
+    #     print(f"i = {idx} {row['bibtex']}")
+    #     if not(row['type'] == "Single") & (row['bibtex'] != "OurWork")& (row['bibtex'] != "OurWorkImproved"):
+    #         continue
+    #     ax.scatter(
+    #         row['volume_mm3'],
+    #         row['sensitivity_nTpRootHz'],
+    #         color=colorBlue,
+    #         s=2
+    #     )
 
-        texts.append(
-            ax.text(
-                row['volume_mm3']*1.5,
-                row['sensitivity_nTpRootHz']*1.1,
-                str(idx),
-                fontsize=numfontsize-1,
-                color=colorBlue
-            )
-            )
+    #     texts.append(
+    #         ax.text(
+    #             row['volume_mm3']*1.5,
+    #             row['sensitivity_nTpRootHz']*1.1,
+    #             str(idx),
+    #             fontsize=numfontsize-1,
+    #             color=colorBlue
+    #         )
+    #         )
         
     for idx, (i, row) in enumerate(date_sorted.iterrows(), start=1):
-        print('i = ',rf'$\mathbf{{\mathrm{{{idx}}}}}$', '  ' , row['bibtex'])
+        print(f"i = {idx} {row['bibtex']}")
         if not(row['type'] == "Ensemble") & (row['bibtex'] != "OurWork")& (row['bibtex'] != "OurWorkImproved"):
             continue
         ax.scatter(
@@ -5236,7 +5743,7 @@ def plotLitReview(saveBool=False):
             )
         
     for idx, (i, row) in enumerate(date_sorted.iterrows(), start=1):
-        print('i = ',rf'$\mathbf{{\mathrm{{{idx}}}}}$', '  ' , row['bibtex'])
+        # print(f"i = {idx} {row['bibtex']}")
         if not(row['type'] == "EnsembleIR") & (row['bibtex'] != "OurWork")& (row['bibtex'] != "OurWorkImproved"):
             continue
         ax.scatter(
@@ -5256,6 +5763,7 @@ def plotLitReview(saveBool=False):
             )
 
     # Our work as an asterisk
+    s = 20
     filt_our = df['bibtex'] == "OurWork"
     ax.scatter(df[filt_our]['volume_mm3'], df[filt_our]['sensitivity_nTpRootHz'],
                marker='*', color=colorDarkRed, s=s*3, zorder=2, edgecolors='none')
@@ -5266,7 +5774,7 @@ def plotLitReview(saveBool=False):
     volumeCont = np.logspace(-14.7, 1, 100)/1e9
     num_NV = lambda V: (V * rho_NV)
         
-    sens, C, nu, R = solveSensitivityVisSingle(
+    sens_triplet, C_triplet, nu_triplet, R_triplet = solveSensitivityVisSingle(
                                     OmegaR=OmegaROpt_vis,
                                     I_p=I_pOpt_vis,
                                     bw=0.01e9*2*np.pi,
@@ -5275,51 +5783,49 @@ def plotLitReview(saveBool=False):
                                     returnAllParams=True
                                     )
     
-    eta_CW_psnl = calcSensitivityCW_countrate(nu*1e3, C/4, R*num_NV(volumeCont))*1e9
-    
-    eta_Ramsey_psnl = calcSensitivityRamsey_countrate(C*2, R*num_NV(volumeCont), tread = 1e-6, tdephase = T2s, twrite = 1e-6)*1e9
+    eta_CW_psnl = calcSensitivityCW_countrate(nu_triplet*1e3, C_triplet/4, R_triplet*num_NV(volumeCont))*1e9
+    eta_Ramsey_psnl = calcSensitivityRamsey_countrate(C_triplet*2/4, R_triplet*num_NV(volumeCont), tread = 1e-6, tdephase = T2s, twrite = 1e-6)*1e9
     
     eta_sp = lambda V: 1/(gamma*np.sqrt(num_NV(V)*T2s))*1e9
 
     LArr = volumeCont**(1/3)
-    etaDiamondCubeNoCavity = []
-    Tm = 1
-    for j, L in enumerate(LArr):
-        A = L**2
+    # etaDiamondCubeNoCavity = []
+    # Tm = 1
+    # for j, L in enumerate(LArr):
+    #     A = L**2
         
-        T0 = TEtalon(Tm, L, alpha0)  
-        T1 = TEtalon(Tm, L, alpha1) 
-        T = T0/2 + T1/2
-        C = (T0-T1)/T
-        P = PinEtalon(Tm, L, alpha, I_sOpt, A)
-        R = T*P/(hbar*omegas)
-        etaDiamondCubeNoCavity.append(calcSensitivityCW(nuOpt, C, P*T, lamb_s)*1e9)
+    #     T0 = TEtalon(Tm, L, alpha0)  
+    #     T1 = TEtalon(Tm, L, alpha1) 
+    #     T = T0/2 + T1/2
+    #     C = (T0-T1)/T
+    #     P = PinEtalon(Tm, L, alpha, I_sOpt, A)
+    #     R = T*P/(hbar*omegas)
+    #     etaDiamondCubeNoCavity.append(calcSensitivityCW(nuOpt, C, P*T, lamb_s)*1e9)
 
-    L0 = 0.2754228703338166 #mm
-    etaDiamondAbsorptionLengthNoCavity = []
-    Tm = 1
-    
-    T0 = TEtalon(Tm, L0, alpha0)  
-    T1 = TEtalon(Tm, L0, alpha1) 
-    T = T0/2 + T1/2
-    C = (T0-T1)/T
-    
-    for j, L in enumerate(LArr):
-        A = volumeCont[j]/L0
-        P = PinEtalon(Tm, L0, alpha, I_sOpt, A)
-        R = T*P/(hbar*omegas)
-        etaDiamondAbsorptionLengthNoCavity.append(calcSensitivityCW(nuOpt, C, P*T, lamb_s)*1e9)
-        
+    L0 = 1/alpha #mm
 
-    ax.plot(volumeCont*1e9, etaDiamondAbsorptionLengthNoCavity, lw = 0.2/0.358, color = colorDarkRed , zorder = -1)
+    # A = volumeCont/L0
+    beta = calcBeta(A)
+    etaDiamondAbsorptionLengthNoCavity = beta/np.abs(alpha0 - alpha1)/L0*1e9
+
+    # ax.plot(volumeCont*1e9, etaDiamondAbsorptionLengthNoCavity, lw = 0.2/0.358, color = colorDarkRed , zorder = -1)
     
-    ax.plot(volumeCont*1e9, eta_CW_psnl, color = colorRed, lw = lw, zorder = -1)
-    ax.plot(volumeCont*1e9, eta_Ramsey_psnl, color = colorRed ,  linestyle = '--', lw = lw, zorder = -1)
-    ax.fill_between(volumeCont*1e9, eta_sp(volumeCont)*1e-10, eta_sp(volumeCont),
-                    color = 'k', alpha = 0.3, lw = 0, zorder = -1)
+    L0 = 1e-6
+    A = volumeCont/L0
+    beta = 4/(3*np.sqrt(3)) * 1/gamma * nuOpt * np.sqrt(hbar*omegas/I_sOpt/A)
+    etaDiamondIdealSmallCavity = beta*np.sqrt(alpha)/np.abs(alpha0-alpha1)/np.sqrt(L0)*1e9
+
+    print(eta_CW_psnl/etaDiamondIdealSmallCavity)
+    # ax.plot(volumeCont*1e9, etaDiamondIdealSmallCavity, lw = 0.2/0.358, color = colorDarkRed, linestyle = '-' , zorder = -1)
     
+    # ax.plot(volumeCont*1e9, eta_CW_psnl, color = colorRed, lw = lw, zorder = -1)
+    # ax.plot(volumeCont*1e9, eta_Ramsey_psnl, color = colorRed ,  linestyle = '--', lw = lw, zorder = -1)
+    # ax.fill_between(volumeCont*1e9, eta_sp(volumeCont)*1e-10, eta_sp(volumeCont),
+    #                 color = 'k', alpha = 0.3, lw = 0, zorder = -1)
+    ax.plot(volumeCont*1e9, eta_sp(volumeCont)*100,
+                    color = 'k', lw = lw, zorder = -1)
     
-    min_x_value = 1e-14
+    min_x_value = 1e-11
     max_x_value = 1e1
     min_y_value = 1e-4
     max_y_value = 1e4
@@ -5354,7 +5860,7 @@ def plotLitReview(saveBool=False):
     ax = axArr[1]
     
     for idx, (i, row) in enumerate(date_sorted.iterrows(), start=1):
-        print('i = ',rf'$\mathbf{{\mathrm{{{idx}}}}}$', '  ' , row['bibtex'])
+        # print('i = ',rf'$\mathbf{{\mathrm{{{idx}}}}}$', '  ' , row['bibtex'])
         if not(row['type'] == "EnsembleIR") & (row['bibtex'] != "OurWork")& (row['bibtex'] != "OurWorkImproved"):
             continue
         ax.scatter(
@@ -5382,13 +5888,14 @@ def plotLitReview(saveBool=False):
                marker='*', color='white', s=s*2, zorder=2, edgecolors=colorDarkRed, lw = lw)
     
     LArr_m = np.logspace(-6, 0, 101)
-    A = 1e-4
+    A = 1e-8
     etaDiamondIdealCavity = np.array([calcEtalonSensitivity(L, A) for L in LArr_m])
     etaBulk = np.array([calcBulkSensitivity(L, A) for L in LArr_m])
     ax.plot(LArr_m, etaBulk*np.sqrt(A)*1e9, lw = 0.2/0.358, color =  'k', 
-            linestyle = '--', zorder = 10)
+            linestyle = '-', zorder = -1)
     ax.plot(LArr_m, etaDiamondIdealCavity*np.sqrt(A)*1e9, lw = 0.2/0.358, color = 'k', 
-            linestyle = '--', zorder = 10)
+            linestyle = '-', zorder = -1)
+    
     
     
     ax.fill_between(LArr_m, eta_sp(LArr_m*A)*np.sqrt(A)*1e-10, eta_sp(LArr_m*A)*np.sqrt(A),
@@ -5635,7 +6142,7 @@ def plotMicrodiskDeltaTvsMWDetSI(saveBool = False):
     fig, ax = plot_custom(
        PRQuantumWidthFull*0.25, PRQuantumWidthHalf * 0.8, 
        r'$\Delta \omega_{\text{MW}}/2\pi$ (MHz)', 
-       # [r'$S_{\text{LI}}$ ($\upmu$V)',r'$\Delta \omega_{\text{opt}}/2\pi$ (GHz)', r'$\Delta \omega_{\text{opt}}/2\pi$ (GHz)'],
+       # [r'$S_{\text{LI}}$ ($\upmu$V)',r'$\Delta\omega_{\text{s}}/2\pi$ (GHz)', r'$\Delta\omega_{\text{s}}/2\pi$ (GHz)'],
         [r'',r'', r''],
        labelPadX = 5, labelPadY = 5, commonY = False, commonX = True, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
@@ -5902,7 +6409,7 @@ def plotMicrodiskDeltaTvsMWDetZeroFieldSI(saveBool = False):
     fig, ax = plot_custom(
        PRQuantumWidthHalf*1.06, PRQuantumWidthHalf * 0.8, 
        r'$\Delta \omega_{\text{MW}}/2\pi$ (MHz)', 
-       # [r'$S_{\text{LI}}$ ($\upmu$V)',r'$\Delta \omega_{\text{opt}}/2\pi$ (GHz)', r'$\Delta \omega_{\text{opt}}/2\pi$ (GHz)'],
+       # [r'$S_{\text{LI}}$ ($\upmu$V)',r'$\Delta\omega_{\text{s}}/2\pi$ (GHz)', r'$\Delta\omega_{\text{s}}/2\pi$ (GHz)'],
        [r'$S_{\text{LI}}$ ($\upmu$V)',r'', r''],
        labelPadX = 5, labelPadY = 5, commonY = False, commonX = True, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
@@ -6522,12 +7029,27 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDeHighQ(saveBool = False):
     fig, ax = plot_custom(
        PRQuantumWidthFull*1/3, PRQuantumWidthHalf * 1, 
        r'$\Delta \omega_{\text{MW}}/2\pi$ (MHz)', 
-       [r'$\Delta \omega_{\text{opt}}/2\pi$ (GHz)', r'$\Delta \omega_{\text{opt}}/2\pi$ (GHz)'],
+       [r'$\Delta\omega_{\text{s}}/2\pi$ (GHz)', r'$\Delta\omega_{\text{s}}/2\pi$ (GHz)'],
        labelPadX = 5, labelPadY = 8, commonY = False, commonX = True, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
        nrow = 2, ncol = 1, fontType = 'BeraSans', axefont = labelfontsize-1, numsize=numfontsize,
        widthBool =True,  widthRatios = [1], heightRatios = [1,2]
     )
+    
+    # load and plot data
+    # filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_002.mat'
+    # filePath = filepathODMR+ filenameODMR4p2umBiasLI2
+    filePath = filepathODMR+ filenameODMR4p4umBiasLI1
+    # filePath = filepathODMR+ filenameODMR4p4umBiasLI2
+    
+    # filePath = filepathODMR+ filenameODMR4p2umBiasLI1
+    # filePath = filepathODMR+ filenameODMR4p2umBiasLI2
+    
+    filePath = filepathODMR+ filenameODMR4p4umBiasLI1
+    
+    
+    data = loadmat(filePath, squeeze_me=True)
+    data = data['data']
     
     Veff = calcVeffHighQ()
     
@@ -6548,7 +7070,6 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDeHighQ(saveBool = False):
     lamb = c_const/nu
     
     # define MW frequency detuning array
-    fMW0 = 2776.6e6*0
     fMWBW = 5e6
     fMWmax = -fMWBW
     fMWmin = fMWBW
@@ -6558,54 +7079,17 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDeHighQ(saveBool = False):
     ODMR = microwaveDetuning3(fMW, 1.85e6, 0, 1, 0)
     ODMR /= ODMR.max()
     
-    ng = 2.4
-    g = 9.8e9
-    tau = np.exp(1j* -0.22)
-    kex1 = nu0/1.8e5
-    kex2 =  nu0/1.4e5
-    ki1 = nu0/45e3
-    ki2 = nu0/38e3
-        
     g = 9e9
-    tau = np.exp(1j* -0.22)
-    kex1 = nu0/5e5
-    kex2 =  kex1
-    ki1 = nu0/30e3
-    ki2 = nu0/30e3
+    tau = np.exp(1j* -0.2)
+    kex1 = nu0/2e5
+    kex2 =  nu0/1.2e5
+    ki1 = nu0/36e3
+    ki2 = nu0/35e3
     
-    g = 8.29195685e+09
-    tau = 5.42964177e-01*np.exp(1j* -2.17800024e-01)
-    kex1 = 6.29210481e+08
-    kex2 =  1.01006776e+09
-    ki1 = 8.85624557e+09
-    ki2 = 1.16488837e+10
-    
-    popt = ( [ 6.29210481e+08 , 1.01006776e+09 , 8.85624557e+09,  1.16488837e+10,
-      8.29195685e+09,  5.42964177e-01, -2.17800024e-01 , 2.41010163e-05,
-      7.79856434e-01])
-    
-    popt = ([1439358456.3236377, 1799198070.4045472, 7575570822.755988, 8224905464.706502, 9000000000.0, 
-             0.9999999999999999, -0.3, 4.120953851485148e-06, 0.3])
-    
-    popt = [1439358456.3236377, 1799198070.4045472, 7575570822.755988, 8224905464.706502, 9000000000.0, 
-            0.9999999999999999, -0.2, 7.4177169326732685e-06, 1]
-    
-    # kabs = alpha * c_const/ng
-    # ki1 = ki1 - kabs
-    # ki2 = ki2 - kabs
-    # kabs0 = alpha0 * c_const/ng
-    # kabs1 = alpha1 * c_const/ng
-    
-    # k0_1 = ki1 + kabs0
-    # k0_2 = ki2 + kabs0
-    # k1_1 = ki1 + kabs1
-    # k1_2 = ki2 + kabs1
+    P_in = np.mean(data['powerIn'].mean())*99/2*np.sqrt(etaFibreIR)/2.2
+    popt = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in, 0.6]
     
     DeltaNu = nu - nu0 
-    # # print(nu0/ki1)
-    # T0 = calcTransmission(kex1, kex2, k0_1, k0_2, DeltaNu, g, tau)
-    # T1 = calcTransmission(kex1, kex2, k1_1, k1_2, DeltaNu, g, tau)
-    # DeltaT = T1-T0
     
     DeltaT, TMean= calcDeltaMicrodiskReturnT(DeltaNu, *popt, Veff = Veff)
     
@@ -6617,20 +7101,7 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDeHighQ(saveBool = False):
     # print('Max theory: ', np.max(DeltaTMat))
     
     
-    # load and plot data
-    # filePath =  'C:/Users/nicho/OneDrive - University of Calgary/Documents/gitProjects/data/dataBarclay/measurementsODMR/CW/20260127/ODMR_20260127_CW__16_18dBAtt_4.2um_0_1_2.87GHz_30MHz_002.mat'
-    # filePath = filepathODMR+ filenameODMR4p2umBiasLI2
-    filePath = filepathODMR+ filenameODMR4p4umBiasLI1
-    # filePath = filepathODMR+ filenameODMR4p4umBiasLI2
-    
-    # filePath = filepathODMR+ filenameODMR4p2umBiasLI1
-    # filePath = filepathODMR+ filenameODMR4p2umBiasLI2
-    
-    filePath = filepathODMR+ filenameODMR4p4umBiasLI1
-    
-    
-    data = loadmat(filePath, squeeze_me=True)
-    data = data['data']
+
     
     lambmin, lambmax = 1040.75-1, 1040.95+1
     W_nm = data['laserWLsRead'].item()
@@ -6659,7 +7130,7 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDeHighQ(saveBool = False):
     
     
     power = data['powerIn'].item()
-    print('Power into the fibre High Q: ',np.mean(power)*50)
+    print('Power into the fibre High Q: ',np.mean(power))
     
     freqsODMR = data['freqsODMR'].item()
     f = freqsODMR*1e-6-2776.7
@@ -6671,7 +7142,7 @@ def plotMicrodiskTheorySensitivityDeltaTvsMWDeHighQ(saveBool = False):
     S_V= S_V.T[:, filt]
     C = C.T[:, filt]
     DC_V = S_V/C
-    DeltaT = -S_V/np.max(DC_V)
+    DeltaT = -S_V/np.max(DC_V)*2 # p2p
     
     DeltaT_Smooth = gaussian_filter1d(DeltaT, sigma=20, axis=0)
     
@@ -7096,7 +7567,7 @@ def plotCWOptimization(saveBool = False):
 def plotDetuningExampleHighQ(saveBool = False):
     fig, axx = plot_custom(
        PRQuantumWidthFull*1/4, PRQuantumWidthHalf*0.9, 
-       [r"$\Delta\omega_{\text{opt}}/2\pi$ (GHz)", r"$\Delta \omega_{\text{MW}}/2\pi$ (MHz)"], 
+       [r"$\Delta\omega_{\text{s}}/2\pi$ (GHz)", r"$\Delta \omega_{\text{MW}}/2\pi$ (MHz)"], 
        [r'', r'$\Delta T$ ($\times 10^{-4}$)'],
        labelPadX = 3, labelPadY = 1, commonY = False, commonX = False, wSpaceSetting=0,
        spineColor = 'black', tickColor = 'black', textColor = 'black',
@@ -7132,16 +7603,14 @@ def plotDetuningExampleHighQ(saveBool = False):
     DC_VMean = np.mean(DC_V, 1)
     DC_VMean /= DC_VMean.max()
     start = 300
-    # axx[0].scatter(DeltanuGHz[start:-start:skip]-26.2, DC_VMean[start:-start:skip], edgecolors='none', marker = '.', s = 2, zorder = 10, color = colorDarkRed)
     
-    
-    DeltaT_Smooth = gaussian_filter1d(DeltaT, sigma=1, axis=0)
+    DeltaT_Smooth = gaussian_filter1d(DeltaT, sigma=1, axis=0)*2 #p2p
     
     idx = 49
     scale = 1000
     skip = 20
     x = (c_const/W_nm/1e-9 - nu0)*1e-9
-    y = DeltaT_Smooth[:, idx]*2 # peak to p2p
+    y = DeltaT_Smooth[:, idx]
     z = DC_V[:, idx]
     axx[0].scatter(x[1::skip]-24.5, y[1::skip]*scale, edgecolors='none', marker = '.', s = 5, zorder = 10, color = colorDarkBlue)
     DeltaTMaxExp = y.max()*scale
@@ -7161,68 +7630,67 @@ def plotDetuningExampleHighQ(saveBool = False):
     ki1 = nu0/36e3
     ki2 = nu0/35e3
     
-    # g = 9e9
-    # tau = np.exp(1j* -0.3)
-    # kex1 = nu0/0.5e5
-    # kex2 =  nu0/0.5e5
-    # ki1 = nu0/60e3
-    # ki2 = nu0/60e3
-    
-    # g = 8.5e9
-    # tau = np.exp(1j* -0.1)
-    # kex1 = nu0/5e5
-    # kex2 =  nu0/5e5
-    # ki1 = nu0/70e3
-    # ki2 = nu0/70e3
-    
     Delta = nuArr - nu0 
     
     deltaOmegaGHz = Delta*1e-9
     deltaOmegaGHzMin = deltaOmegaGHz.min()
     deltaOmegaGHzMax = deltaOmegaGHz.max()
      
-    # print(nu0/ki1)
     fit= calcTransmission(kex1, kex2, ki1, ki2, Delta, g = g, tau = tau)
     
     #%%%% Plot change in transmission fit with wavelength
-    P_in *= np.sqrt(etaFibreIR)*1.4/1.01/2
+    P_in *= np.sqrt(etaFibreIR)/2.2
     print('lambda0: ', lamb0)
-    print('Pin: ', P_in.mean())
-    p0 = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in.mean(), 1] # doublet forms standing mode which has twice the peak intensity
-    # p0 = [  7.97161704e+08,  2.08375770e+09,  9.19466176e+09 , 4.09822761e+10,
-    #   8.78057466e+09 , 6.27425160e-01, -1.01660594e-01,  P_in.mean(),
-      # 1.7]
-    # p0 = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in.mean()*1, 1]
+    print('Pin: ', P_in.mean() ,' +/- ', P_in.mean()*0.1)
+    p0 = [kex1, kex2, ki1, ki2, g, np.abs(tau), np.angle(tau),P_in.mean(), 0.5] # doublet forms standing mode which has twice the peak intensity
+
+    P_inFixed = P_in.mean()
+    scaleFixed = 1
+
+    def deltaTModel(freqHz, kex1_, kex2_, ki1_, ki2_, g_, tauAbs_, phi_):
+        DeltaTFitLocal, _ = calcDeltaMicrodiskReturnT(freqHz, kex1_, kex2_, ki1_, ki2_, g_, tauAbs_, phi_,
+                                                        P_inFixed, scaleFixed, Veff=Veff)
+        return DeltaTFitLocal
+
+    #                  kex1  kex2  ki1   ki2   g     tau  phi
+    # lowerBounds = [ kex1*0.8,kex2*0.8,ki1*0.8,ki2*0.8,g*0.8,    0.9,   -np.pi]
+    # upperBounds = [kex1*1.2,kex2*1.2,ki1*1.2,ki2*1.2,g*1.2, 1.1,  np.pi]
+    # poptFree, pcov = curve_fit(deltaTModel, x*1e9, y, p0=p0[:7], bounds=(lowerBounds, upperBounds))
+    # perr = np.sqrt(np.diag(pcov))
+    # for name, val, err in zip(['kex1', 'kex2', 'ki1', 'ki2', 'g', 'tau', 'phi'], poptFree, perr):
+    #     print(f'fitted {name}: {val:.4e}  +/-  {err:.2e}')
+    # popt = list(poptFree) + [P_inFixed, scaleFixed]  # full 9-element form for the code below
+
+    popt = p0
+    DeltaTFit, TMean = calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, Veff =Veff)
+
+    TMean/= TMean.max()
+    P_det = P_in.mean()*TMean*np.sqrt(etaFibreIR)*etaPostFibre
+    
+    
     DeltaTFitP0, TMean = calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *p0, Veff = Veff, doubletBool=True)
-    popt=p0
     upperScale = 100
     lowerScale = 0.001
-    # lower_bounds = [kex1*lowerScale, kex2*lowerScale, ki1*lowerScale, ki2*lowerScale, g*lowerScale, np.abs(tau)*lowerScale, np.angle(tau)*1.02,P_in.mean()*0.1, 0.1]
-    # upper_bounds = [kex1*upperScale, kex2*upperScale, ki1*upperScale, ki2*upperScale, g*upperScale, np.abs(tau)*upperScale, np.angle(tau)*0.98,P_in.mean()*3, 2]
-    # popt, pcov = curve_fit(calcDeltaMicrodisk, x[1::skip]*1e9-24e9, y[1::skip], p0=p0,    bounds=(lower_bounds, upper_bounds))
-    
     
     DeltaTFit, TMean= calcDeltaMicrodiskReturnT(deltaOmegaGHz*1e9, *popt, Veff = Veff, doubletBool = True)
     TMean/= TMean.max()
     
     [kex1, kex2, ki1, ki2, g, tauabs, phi, pin, scaleNew] = popt
-    # print('popt: ', popt)
-    # print('Qi1, Qi2: ', omegas/ki1/2/np.pi, omegas/ki2/2/np.pi)
     tau = 1*np.exp(1j*phi)
     
     a = np.abs(calcIntracavityField(popt[0], popt[0] + popt[2], popt[1], popt[1]+ popt[3], Delta, popt[4]))
     NcavMax = calcPhotonsInCavity(a.max(), P_in.mean())
     # print('Max Ncav: ', NcavMax)
     Imax = NtoI1042(NcavMax)
-    print('Max intensity MW/cm^2: ', Imax)
-    # print('Qs: ', omegas/popt[2]/(2*np.pi), omegas/popt[3]/(2*np.pi))
+    print('Max intensity MW/cm^2: ', Imax, ' +/- ', Imax*0.3) # 30% uncertainty 
+    print('Qs: ', omegas/popt[2]/(2*np.pi), omegas/popt[3]/(2*np.pi))
     
     
     #%%%% Predict transmission based on change in transmission
     # TMean= calcTransmission(kex1, kex2, ki1, ki2, Delta, g = g, tau = tau)
     axx[0].plot(deltaOmegaGHz, TMean, lw = 0.2/0.3528, color = colorRed)
     
-    Deltak = DeltaT2Deltak(DeltaTFit.max(), np.abs(tau), kex1, kex1 + ki1)
+    Deltak = DeltaT2Deltak(y.max(), np.abs(tau), kex1, kex1 + ki1)
     print('Deltak MHz: ', Deltak.max()/1e6)
     print('delta alpha /m: ', kappa2alpha(Deltak.max()*2*np.pi))
     
@@ -7239,7 +7707,6 @@ def plotDetuningExampleHighQ(saveBool = False):
     fmax = fBW
     f = np.linspace(fmin, fmax, 1000)
     amp = DeltaTFit.max() * 1e4*0.74
-    # print('amp: ',amp)
     TMW = microwaveDetuning3(f, nuOpt, 0, amp, 0)
     TMWsingle1 = lorentzianSingleWithAmplitude(f, nuOpt, 0, amp)
     
@@ -7248,9 +7715,7 @@ def plotDetuningExampleHighQ(saveBool = False):
     idx = idx[0]
     N = 5
     u = fExp-0.1
-    v = np.mean(DeltaT_Smooth[idx-N:idx+N, :],0)*2 # peak to p2p
-    # v /= v.max()
-    # v *= TMW.max()
+    v = np.mean(DeltaT_Smooth[idx-N:idx+N, :],0)
     skip = 2
     axx[1].scatter(u[1::skip]+0.1, v[1::skip]*1e4, edgecolors='none', marker = '.', s =5, zorder = 10, color = colorDarkBlue)
            
@@ -7268,15 +7733,15 @@ def plotDetuningExampleHighQ(saveBool = False):
     C = (TMax-TMin)/TMean.min()
     dC = C*perr[2]/popt[2]
     print('C:', C , ' pm ', dC)
-    # print('Tmax/Tmin:', Tmax/Tmin)
-        
-    
-    etaSNL = calcSensitivityCW(popt[0], C, P_det.min(), lamb_s)
+    print('Delta T * 1e4:', TMax, ' pm ', (TMax)*perr[2]/popt[2])
 
-    detaSNL = calcSensitivityCWUncertainty(popt[0], perr[0], C, dC, P_det.min(), P_det.min()*0.2, lamb_s)
-    
-    print('Pdet', P_det.min())
-    print('eta High Q:', etaSNL, ' pm ', detaSNL)
+    # shot-noise-limited field sensitivity from the fitted contrast/linewidth,
+    # with uncertainty propagated from the fit
+    etaSNL = calcSensitivityCW(popt[0], C, P_det.min(), lamb0)
+    detaSNL = calcSensitivityCWUncertainty(popt[0], perr[0], C, dC, P_det.min(), P_det.min()*0.3, lamb0)
+
+    print('Pdet', P_det.min(), ' pm ',  P_det.min()*0.3)
+    print('eta nT:', etaSNL*1e9, ' pm ', detaSNL*1e9)
     
     ax = axx[0]
     ax.plot(deltaOmegaGHz, DeltaTFit*scale, lw = 0.2/0.3528, color = colorBlue)
@@ -7285,13 +7750,8 @@ def plotDetuningExampleHighQ(saveBool = False):
     #%%%% Plot change in transmission fit with MW det 2
     TMWsingle1 = lorentzianSingleWithAmplitude(f, nuOpt, 0, amp)
     axx[1].plot(f/1e6, TMWsingle1, lw = 0.2/0.3528, color = 'k', linestyle = '--')
-    # TMWsingle1 = lorentzianSingleWithAmplitude(f, nuOpt, -hyperfine, amp)
-    # axx[1].plot(f/1e6, TMWsingle1, lw = 0.2/0.3528, color = 'k', linestyle = '--')
-    # TMWsingle1 = lorentzianSingleWithAmplitude(f, nuOpt, hyperfine, amp)
-    # axx[1].plot(f/1e6, TMWsingle1, lw = 0.2/0.3528, color = 'k', linestyle = '--')
-    TMW = microwaveDetuning3(f, nuOpt, 0, amp, 4.02066788e-01)
+    TMW = microwaveDetuning3(f, *popt)*1e4
     
-    # ax.plot(lamb*1e9, fits, lw = 0.2/0.3528, color = 'k')
     Tmin = -0.3
     ax.set_xlim([deltaOmegaGHzMin-5,deltaOmegaGHzMax])
     ax.spines['bottom'].set_bounds(deltaOmegaGHzMin, deltaOmegaGHzMax)
@@ -7303,13 +7763,10 @@ def plotDetuningExampleHighQ(saveBool = False):
     ax.set_yticklabels([rf"${val:.2f}$" for val in ax.get_yticks()])
     ax.yaxis.set_label_coords(-0.15, 1.1)
     ax = axx[1]
-    
-    # DeltaTFit = microwaveDetuning3(f, *popt)
+
     
     ax.plot(f/1e6, TMW, lw = 0.2/0.3528, color = colorBlue)
     gammaMW = popt[0]
-    # print('gammaMW: ', gammaMW)
-    # print('popt: ', popt)
     amp =popt[2]
    
     ax.yaxis.set_label_coords(-0.18, 1.1)
@@ -7319,11 +7776,8 @@ def plotDetuningExampleHighQ(saveBool = False):
     
     ax.set_ylim([-0.15, DeltaTMaxExp*10+0.1])
     ax.spines['left'].set_bounds(0,DeltaTMaxExp*10)
-    # ax.set_xticks()
     ax.set_yticks([0, 1, DeltaTMaxExp*10])
     ax.set_yticklabels([rf"${val:.1f}$" for val in ax.get_yticks()])
-    # ax.set_xticklabels([rf"${val:.0f}$" for val in ax.get_xticks()])
-    # ax.set_yticklabels([r'$0$', r'$1/2$', r'$1$'])
     
     for ax in axx:
         ax.spines["right"].set_visible(False)
@@ -7339,12 +7793,12 @@ def plotDetuningExampleHighQ(saveBool = False):
         ax.xaxis.set_label_coords(0.55,-0.27)
         
 
-    axx[0].yaxis.set_label_coords(-0.16, 1.05)
+    axx[0].yaxis.set_label_coords(-0.06, 1.05)
     
-    axx[1].yaxis.set_label_coords(-0.04, 1.05)
-    axx[0].text(-46, 1.11, r"$T$ (au)", color=colorRed,
+    axx[1].yaxis.set_label_coords(0.15, 1.05)
+    axx[0].text(-46, 1.11, r"$T$", color=colorRed,
          ha='right', fontsize = labelfontsize-1)
-    axx[0].text(-46, 1.29, r"$\Delta T$ (au)", color=colorBlue,
+    axx[0].text(-46, 1.29, r"$\Delta T$", color=colorBlue,
          ha='right', fontsize = labelfontsize-1)
     
     
@@ -7917,10 +8371,11 @@ if __name__ == "__main__":
 
     #%% paper function calls
 
-    saveBool = False
+    saveBool = True
 
     ## figure 1
     # plotZeemanSplitting(saveBool = saveBool)
+    # plotDissipativeCoupling(saveBool = saveBool)
     # plotSpinContrastMechanisms(saveBool = saveBool)
 
     ## figure 2
@@ -7928,6 +8383,7 @@ if __name__ == "__main__":
     # plotEtalonSensitivity1D(saveBool)
     # plotSensitivityRelation(saveBool)
     # plotSensitivityComparison(saveBool)
+    plotSensitivityComparison2(saveBool)
 
     ## figure 3
     # plotIRSpectrometerCombined(saveBool)
@@ -7947,10 +8403,12 @@ if __name__ == "__main__":
     # plotNoiseFigure(saveBool = saveBool)
 
     # figure 7
-    plotDetuningExample(saveBool)
+    # plotDetuningExample(saveBool)
+    # plotDetuningExample2(saveBool)
     # plotMicrodiskTheorySensitivityDeltaTvsMWDet(saveBool = saveBool)
     # plotMicrodiskTheorySensitivitykcavkex(saveBool = saveBool)
-
+    # calculateOptimalSensitivity()
+# 
     ## figure 8
     # plotLitReview(saveBool)
 
