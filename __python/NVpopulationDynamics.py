@@ -89,7 +89,7 @@ def solveTimeDependentPopulation(saveBool = False,
         detuning = detuning,
         zeeman = zeeman,
         steadystatebool=False,
-        tEnd = 1e-6,
+        tEnd = 5e-6,
         bool1042 = bool1042,
     )
     
@@ -796,7 +796,9 @@ def solvePopulationDetuningHyperfineLineplot(saveBool = False):
                                         lamb_s = lamb_s,   # IR probe
                                         lamb_p = lamb_p,    # green pump
                                         c = c_const, #m/s
-                                        h = h      # Planck constant [J·s]
+                                        h = h,      # Planck constant [J·s]
+                                        paramsRates = paramsRatesOnes,
+                                        paramsRatesReal = paramsRatesReal
                                         )
         pophf2 = nv_steady_state(
                                         Omega = OmegaR, #rad/s
@@ -821,7 +823,9 @@ def solvePopulationDetuningHyperfineLineplot(saveBool = False):
                                         lamb_s = lamb_s,   # IR probe
                                         lamb_p = lamb_p,    # green pump
                                         c = c_const, #m/s
-                                        h = h      # Planck constant [J·s]
+                                        h = h,      # Planck constant [J·s]
+                                        paramsRates = paramsRatesOnes,
+                                        paramsRatesReal = paramsRatesReal
                                         )
         pophf3 = nv_steady_state(
                                         Omega = OmegaR, #rad/s
@@ -846,7 +850,9 @@ def solvePopulationDetuningHyperfineLineplot(saveBool = False):
                                         lamb_s = lamb_s,   # IR probe
                                         lamb_p = lamb_p,    # green pump
                                         c = c_const, #m/s
-                                        h = h      # Planck constant [J·s]
+                                        h = h,      # Planck constant [J·s]
+                                        paramsRates = paramsRatesOnes,
+                                        paramsRatesReal = paramsRatesReal
                                         )
         p7 = np.append(p7,pophf1[7] + pophf2[7] + pophf3[7])
     
@@ -2364,7 +2370,7 @@ def solvePopulationIRGreenOmegaRDetuning(
         y_shift_plus  = np.roll(y, -shift_pts)
         y_shift_minus = np.roll(y,  shift_pts)
 
-        y_total = (y + y_shift_plus + y_shift_minus)*100*scaleIR[j]*np.sqrt(I_IR[j]/(I_IR[1]))
+        y_total = (y + y_shift_plus + y_shift_minus)*100*scaleIR[j]
         # y_total = p7*100
         maxIR[1+j] = y_total.max()
         
@@ -3341,10 +3347,10 @@ if __name__ == "__main__":
     
     
     # solvePopulationLineplots()
-    # solveTimeDependentPopulation(OmegaR =  2*np.pi*6e6, I_s = I_sOpt, I_p = I_pOpt, detuning = detuning, saveBool = saveBool)
+    # solveTimeDependentPopulation(OmegaR =  2*np.pi*5e6, I_s = I_sOpt, I_p = I_pOpt, detuning = detuning, saveBool = saveBool)
     # solvePopulationSteadyState(saveBool, bool1042 = True)
     # solvePopulationSteadyStateOmegaR(saveBool, bool1042 = False)
-    solvePopulationSteadyStateContrast(saveBool = saveBool, bool1042 = False)
+    # solvePopulationSteadyStateContrast(saveBool = saveBool, bool1042 = False)
     # solvePopulationDetuningHyperfineLineplot(saveBool)
     # solveNVPL_GreenOmegaR()
     
@@ -3355,7 +3361,9 @@ if __name__ == "__main__":
     #                                 bw = 0.01e9*2*np.pi,
     #                                 Npoints = 201,
     #                                 fastBool = False)
-    
+    # solveTimeDependentPopulation(OmegaR =  OmegaROptRadps, 
+    #                              I_s = I_sOpt*5, I_p = I_pOpt, 
+    #                              detuning = detuning, saveBool = saveBool)
     # solvePopulationDetuningLineplotPL(saveBool = False, 
     #                                 OmegaR = OmegaROptRadps_vis,          
     #                                 I_p = I_pOpt_vis,

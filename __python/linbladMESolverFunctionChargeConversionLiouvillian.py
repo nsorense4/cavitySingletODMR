@@ -162,7 +162,8 @@ def nv_steady_state(
     tEnd = 2e-6,
     numT = 500,
     verboseResults = False,
-    bool1042 = False
+    bool1042 = False,
+    returnLiouvillian = False
 ):
     """
     Compute steady-state populations of an 8-level NV center model.
@@ -369,7 +370,12 @@ def nv_steady_state(
     
     # Pure dephasing
     for idx in [gp, gm, g0, ep, em, e0]:
-        L += gamma_phi/2 * LT[f"deph_{idx}"]
+        L += gamma_phi * LT[f"deph_{idx}"]
+
+    # Lets callers build their own time-dependent evolution (e.g. pulsed pumping
+    # in NVpulsedDynamics.py) from the same Liouvillian used here.
+    if returnLiouvillian:
+        return L
 
     if steadystatebool:
         
